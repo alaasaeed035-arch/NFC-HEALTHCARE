@@ -11,7 +11,7 @@ import { generateOTP, sendOTP } from '../../utils/OTP.js';
 
 // patient signup
 export const signupPatient = async (req, res, next) => {
-  const {firstName, lastName, nationalId,gender,dateOfBirth,bloodType,phoneNumber,address,emergencyContact,cardId,surgerys,ChronicDiseases} = req.body;
+  const { firstName, lastName, nationalId, gender, dateOfBirth, bloodType, phoneNumber, address, emergencyContact, cardId, surgerys, ChronicDiseases } = req.body;
 
   // check if patient already exists
   const patientExist = await Patient.findOne({
@@ -36,7 +36,7 @@ export const signupPatient = async (req, res, next) => {
     cardId,
     surgerys,
     ChronicDiseases,
-    role : roles.PATIENT,
+    role: roles.PATIENT,
   });
 
   // save patient
@@ -287,77 +287,77 @@ export const getProfileDoctor = async (req, res, next) => {
 
 // Forget Password (Doctor)
 export const forgetPasswordDoctor = async (req, res, next) => {
-    const { email } = req.body;
+  const { email } = req.body;
 
-    // check existence
-    const doctorExist = await Doctor.findOne({ email });
-    if (!doctorExist) {
-        return next(new AppError(messages.doctor.notExist, 401));
-    }
+  // check existence
+  const doctorExist = await Doctor.findOne({ email });
+  if (!doctorExist) {
+    return next(new AppError(messages.doctor.notExist, 401));
+  }
 
-    // generate OTP
-    const otp = generateOTP();
+  // generate OTP
+  const otp = generateOTP();
 
-    //  SEND EMAIL WITH OTP
-    await sendOTP(doctorExist.email, otp);
+  //  SEND EMAIL WITH OTP
+  await sendOTP(doctorExist.email, otp);
 
-    // save OTP + expiry
-    doctorExist.otp = otp;
-    doctorExist.otpExpires = Date.now() + 10 * 60 * 1000;
+  // save OTP + expiry
+  doctorExist.otp = otp;
+  doctorExist.otpExpires = Date.now() + 10 * 60 * 1000;
 
-    const saved = await doctorExist.save();
-    if (!saved) {
-        return next(new AppError(messages.doctor.failToUpdate, 500));
-    }
+  const saved = await doctorExist.save();
+  if (!saved) {
+    return next(new AppError(messages.doctor.failToUpdate, 500));
+  }
 
-    return res.status(200).json({
-        message: messages.doctor.otpSent,
-        success: true,
-    });
+  return res.status(200).json({
+    message: messages.doctor.otpSent,
+    success: true,
+  });
 };
 
 // Verify OTP & Reset Password (Doctor)
 export const verifyOtpAndResetPasswordDoctor = async (req, res, next) => {
-    const { email, otp, newPassword } = req.body;
+  const { email, otp, newPassword } = req.body;
 
-    // find doctor (include password)
-    const doctor = await Doctor.findOne({ email }).select("+password");
-    if (!doctor) {
-        return next(new AppError(messages.doctor.notExist, 404));
-    }
+  // find doctor (include password)
+  const doctor = await Doctor.findOne({ email }).select("+password");
+  if (!doctor) {
+    return next(new AppError(messages.doctor.notExist, 404));
+  }
 
-    // convert otp to string to avoid mismatch (fixes most errors)
-    const storedOtp = String(doctor.otp);
-    const enteredOtp = String(otp);
+  // convert otp to string to avoid mismatch (fixes most errors)
+  const storedOtp = String(doctor.otp);
+  const enteredOtp = String(otp);
 
-    // check otp validity
-    if (storedOtp !== enteredOtp || Date.now() > doctor.otpExpires) {
-        return next(new AppError(messages.doctor.invalidOTP, 400));
-    }
+  // check otp validity
+  if (storedOtp !== enteredOtp || Date.now() > doctor.otpExpires) {
+    return next(new AppError(messages.doctor.invalidOTP, 400));
+  }
 
-    // check new password is not same as old
-    const isSame = await bcrypt.compare(newPassword, doctor.password);
-    if (isSame) {
-        return next(new AppError(messages.doctor.samePassword, 400));
-    }
+  // check new password is not same as old
+  const isSame = await bcrypt.compare(newPassword, doctor.password);
+  if (isSame) {
+    return next(new AppError(messages.doctor.samePassword, 400));
+  }
 
-    // hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+  // hash new password
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // update doctor password + clear otp
-    doctor.password = hashedPassword;
-    doctor.otp = undefined;
-    doctor.otpExpires = undefined;
+  // update doctor password + clear otp
+  doctor.password = hashedPassword;
+  doctor.otp = undefined;
+  doctor.otpExpires = undefined;
 
-    const updated = await doctor.save();
-    if (!updated) {
-        return next(new AppError(messages.doctor.failToUpdate, 400));
-    }
+  const updated = await doctor.save();
+  if (!updated) {
+    return next(new AppError(messages.doctor.failToUpdate, 400));
+  }
 
-    return res.status(200).json({
-        message: messages.doctor.passwordUpdated,
-        success: true
-    });
+  return res.status(200).json({
+    message: messages.doctor.passwordUpdated,
+    success: true
+  });
 };
 
 
@@ -467,5 +467,26 @@ export const updateDoctorProfile = async (req, res, next) => {
     message: messages.doctor.updated,
     success: true,
     data: updatedDoctor,
+  });
+};
+
+// Get All Patients
+export const getAllPatients = async (req, res, next) => {
+  const patients = await Patient.find();
+  return res.status(200).json({
+    message: "Patients fetched successfully",
+    success: true,
+    data: patients
+  });
+};
+
+// Get All Doctors
+export const getAllDoctors = async (req, res, next) => {
+  // Populate hospital info if needed
+  const doctors = await Doctor.find().populate("hospitalId");
+  return res.status(200).json({
+    message: "Doctors fetched successfully",
+    success: true,
+    data: doctors
   });
 };

@@ -46,10 +46,10 @@ const patientSchema = new Schema(
       phone: String,
       relation: String,
     },
-    cardId: {
-      type: String,
-      unique: true,
-    },
+    //cardId: {
+    //type: String,
+    //unique: true,
+    //},
     surgerys: {
       type: [String],
       default: [],
@@ -63,6 +63,10 @@ const patientSchema = new Schema(
       type: String,
       enum: Object.values(roles),
       default: roles.PATIENT,
+    },
+    isVerified: {
+      type: Boolean,
+      default: true,
     },
   },
   { timestamps: true }

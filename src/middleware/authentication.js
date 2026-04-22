@@ -26,7 +26,12 @@ export const isAuthenticated = () => {
         
         // if not found in Doctor, check Patient collection
         if (!authUser) {
-            authUser = await Patient.findById(payload._id)
+            // Patients are staff-created (no email verification flow), so
+            // match existing docs regardless of whether the field is present yet.
+            authUser = await Patient.findOne({
+                _id: payload._id,
+                $or: [{ isVerified: true }, { isVerified: { $exists: false } }],
+            })
         }
         
         if (!authUser) {

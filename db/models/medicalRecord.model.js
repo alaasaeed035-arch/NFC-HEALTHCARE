@@ -37,8 +37,45 @@ const medicalRecordSchema = new Schema(
       type: Date,
       default: Date.now,
     },
+    aiAnalysis: {
+      hasConflict: {
+        type: Boolean,
+        default: false,
+      },
+      severity: {
+        type: String,
+        enum: ['none', 'low', 'moderate', 'high', 'critical', 'unknown'],
+        default: 'none',
+      },
+      analysis: {
+        type: String,
+        trim: true,
+      },
+      recommendations: [
+        {
+          type: String,
+        },
+      ],
+      interactions: [
+        {
+          type: String,
+        },
+      ],
+      checkedAt: {
+        type: Date,
+      },
+      serviceAvailable: {
+        type: Boolean,
+        default: true,
+      },
+    },
   },
   { timestamps: true }
 );
+
+medicalRecordSchema.index({ patientId: 1 });
+medicalRecordSchema.index({ doctorId: 1 });
+medicalRecordSchema.index({ hospitalId: 1 });
+medicalRecordSchema.index({ visitDate: -1 });
 
 export const MedicalRecord = model("MedicalRecord", medicalRecordSchema);
