@@ -1,18 +1,9 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
 
 class ChatRequest(BaseModel):
-    patientId: str = Field(..., description="Patient identifier (demo only; add auth in production)")
+    patientId: str = Field(..., description="Patient MongoDB _id, nationalId, or cardId")
     message: str
-    language: Optional[str] = Field(default="auto", description="auto | en | ar")
-
-class SourceDoc(BaseModel):
-    id: str
-    title: str
-    snippet: str
-    score: float
 
 class ChatResponse(BaseModel):
     answer: str
-    sources: List[SourceDoc] = []
-    safety_note: str
+    safety_note: str = "This chatbot provides general information only and does not replace a clinician."

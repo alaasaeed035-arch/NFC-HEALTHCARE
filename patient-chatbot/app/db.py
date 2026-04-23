@@ -7,7 +7,7 @@ def get_client() -> AsyncIOMotorClient:
     global _client
     if _client is None:
         if not settings.MONGODB_URI:
-            raise RuntimeError("MONGODB_URI is missing")
+            raise RuntimeError("MONGO_URI is missing from environment")
         _client = AsyncIOMotorClient(settings.MONGODB_URI)
     return _client
 

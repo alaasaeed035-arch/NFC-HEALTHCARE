@@ -1,12 +1,14 @@
-from groq import Groq
+from openai import OpenAI
 from .config import settings
 
-def make_client() -> Groq:
-    if not settings.GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY is missing")
-    return Groq(api_key=settings.GROQ_API_KEY)
+_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
-def chat_completion(messages, temperature: float = 0.2, max_tokens: int = 800) -> str:
+def make_client() -> OpenAI:
+    if not settings.GROQ_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is missing")
+    return OpenAI(api_key=settings.GROQ_API_KEY, base_url=_GEMINI_BASE_URL)
+
+def chat_completion(messages, temperature: float = 0.3, max_tokens: int = 1024) -> str:
     client = make_client()
     resp = client.chat.completions.create(
         model=settings.GROQ_MODEL,
@@ -14,4 +16,4 @@ def chat_completion(messages, temperature: float = 0.2, max_tokens: int = 800) -
         temperature=temperature,
         max_tokens=max_tokens,
     )
-    return resp.choices[0].message.content 
+    return resp.choices[0].message.content
