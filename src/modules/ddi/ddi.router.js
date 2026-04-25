@@ -12,7 +12,7 @@ const ddiRouter = Router();
 ddiRouter.get(
     '/',
     isAuthenticated(),
-    isAuthorized([roles.DOCTOR, roles.ADMIN_HOSPITAL, roles.ADMIN, roles.SUPER_ADMIN]),
+    isAuthorized([roles.DOCTOR, roles.ADMIN_HOSPITAL, roles.ADMIN, roles.SUPER_ADMIN, roles.PATIENT]),
     asyncHandler(async (req, res, next) => {
         if (!mongoose.connection.db) {
             return next(new AppError('Database not connected', 503));
@@ -21,7 +21,12 @@ ddiRouter.get(
         const { patientId, severity, limit = 100, skip = 0 } = req.query;
 
         const filter = {};
-        if (patientId) filter.patient_id = patientId;
+        // Patients can only see their own DDI reports
+        if (req.authUser.role === roles.PATIENT) {
+            filter.patient_id = req.authUser._id.toString();
+        } else if (patientId) {
+            filter.patient_id = patientId;
+        }
         if (severity)  filter['analysis.severity'] = severity;
 
         const collection = mongoose.connection.db.collection('conflict_analyses');
@@ -48,7 +53,7 @@ ddiRouter.get(
 ddiRouter.get(
     '/:id',
     isAuthenticated(),
-    isAuthorized([roles.DOCTOR, roles.ADMIN_HOSPITAL, roles.ADMIN, roles.SUPER_ADMIN]),
+    isAuthorized([roles.DOCTOR, roles.ADMIN_HOSPITAL, roles.ADMIN, roles.SUPER_ADMIN, roles.PATIENT]),
     asyncHandler(async (req, res, next) => {
         if (!mongoose.connection.db) {
             return next(new AppError('Database not connected', 503));

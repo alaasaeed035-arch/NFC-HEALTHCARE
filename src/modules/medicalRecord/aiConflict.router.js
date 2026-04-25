@@ -19,15 +19,28 @@ router.post('/check-conflict',
     isAuthorized([roles.DOCTOR, roles.ADMIN_HOSPITAL]),
     async (req, res, next) => {
     try {
-        const { patientId, currentMedications, newMedication } = req.body;
+        // Accept both camelCase and snake_case field names
+        const { 
+            patientId, 
+            patient_id,
+            currentMedications, 
+            current_medications, 
+            newMedication, 
+            new_treatment 
+        } = req.body;
+
+        // Normalize field names
+        const finalPatientId = patientId || patient_id;
+        const finalCurrentMeds = currentMedications || current_medications || [];
+        const finalNewMed = newMedication || new_treatment;
 
         // Validate input
-        if (!patientId || !newMedication || !newMedication.name) {
+        if (!finalPatientId || !finalNewMed || !finalNewMed.name) {
             return next(new AppError('Patient ID and new medication are required', 400));
         }
 
         // Get patient
-        const patient = await Patient.findById(patientId);
+        const patient = await Patient.findById(finalPatientId);
         if (!patient) {
             return next(new AppError(messages.patient.notExist, 404));
         }
@@ -35,9 +48,11 @@ router.post('/check-conflict',
         // Check conflict
         const result = await checkDrugConflict(
             patient,
-            currentMedications || [],
-            newMedication
+            finalCurrentMeds,
+            finalNewMed
         );
+
+        console.log('DDI service result:', JSON.stringify(result, null, 2));
 
         return res.status(200).json({
             success: true,
@@ -47,7 +62,7 @@ router.post('/check-conflict',
                     id: patient._id,
                     name: `${patient.firstName} ${patient.lastName}`,
                 },
-                newMedication: newMedication.name,
+                newMedication: finalNewMed.name,
                 analysis: result.analysis,
                 aiServiceAvailable: result.success,
                 fallbackMode: result.fallback || false,

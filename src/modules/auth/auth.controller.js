@@ -12,11 +12,12 @@ import { generateOTP, sendOTP } from '../../utils/OTP.js';
 // patient signup
 export const signupPatient = async (req, res, next) => {
   const { firstName, lastName, nationalId, gender, dateOfBirth, bloodType, phoneNumber, address, emergencyContact, cardId, surgerys, ChronicDiseases } = req.body;
+  const hospitalId = req.authUser?.hospitalId ?? null;
 
   // check if patient already exists
-  const patientExist = await Patient.findOne({
-    $or: [{ nationalId }, { cardId }]
-  });
+  const orConditions = [{ nationalId }]
+  if (cardId) orConditions.push({ cardId })
+  const patientExist = await Patient.findOne({ $or: orConditions });
 
   if (patientExist) {
     return next(new AppError(messages.patient.alreadyExist, 409));
@@ -37,6 +38,7 @@ export const signupPatient = async (req, res, next) => {
     surgerys,
     ChronicDiseases,
     role: roles.PATIENT,
+    hospitalId,
   });
 
   // save patient
@@ -62,22 +64,18 @@ export const signupPatient = async (req, res, next) => {
 
 // patient login
 export const loginPatient = async (req, res, next) => {
-  // Get data from the request
   const { nationalId } = req.body;
 
-  // Find patient by national ID
   const patient = await Patient.findOne({ nationalId });
 
   if (!patient) {
     return next(new AppError(messages.patient.notExist, 404));
   }
 
-  // Generate token with _id (standard auth expects payload._id)
   const token = generateToken({
-    payload: { _id: patient._id, nationalId: patient.nationalId }
+    payload: { _id: patient._id, nationalId: patient.nationalId, model: 'PATIENT' }
   });
 
-  // Send response
   return res.status(200).json({
     message: messages.patient.loginSuccessfully,
     success: true,
@@ -199,17 +197,28 @@ export const login = async (req, res, next) => {
   let account = null;
   let accountType = null;
 
-  //  Try User collection first
-  account = await User.findOne({ email }).select("+password");
+  //  Try User collection first (admin, super_admin, admin_hospital, receptionist)
+  //  Search by email OR fullName since admin accounts use fullName as username
+  account = await User.findOne({
+    $or: [{ email: email }, { fullName: email }],
+  });
   if (account) {
     accountType = "USER";
   }
 
   //  If not found → try Doctor collection
   if (!account) {
-    account = await Doctor.findOne({ email }).select("+password");
+    account = await Doctor.findOne({ email });
     if (account) {
       accountType = "DOCTOR";
+    }
+  }
+
+  //  If not found → try Patient collection (patients with email)
+  if (!account) {
+    account = await Patient.findOne({ email });
+    if (account) {
+      accountType = "PATIENT";
     }
   }
 
@@ -218,18 +227,17 @@ export const login = async (req, res, next) => {
     return next(new AppError(messages.user.invalidCredentials, 401));
   }
 
-  //  Check password
-  const isPasswordValid = bcrypt.compareSync(password, account.password);
-  if (!isPasswordValid) {
+  //  Check password (skip if account has no password, e.g. patient with nationalId-only login)
+  if (account.password) {
+    const isPasswordValid = bcrypt.compareSync(password, account.password);
+    if (!isPasswordValid) {
+      return next(new AppError(messages.user.invalidCredentials, 401));
+    }
+  } else {
     return next(new AppError(messages.user.invalidCredentials, 401));
   }
 
-  //  Check verification
-  if (account.isVerified === false) {
-    return next(new AppError(messages.user.notVerified, 403));
-  }
-
-  //  Generate token
+  //  Generate token (no verification gate — all accounts can login)
   const token = generateToken({
     payload: {
       _id: account._id,
@@ -488,5 +496,38 @@ export const getAllDoctors = async (req, res, next) => {
     message: "Doctors fetched successfully",
     success: true,
     data: doctors
+  });
+};
+
+// Get current user profile (works for any role)
+export const getMyProfile = async (req, res, next) => {
+  let profile
+  if (req.authUser.toObject) {
+    profile = { ...req.authUser.toObject() }
+  } else {
+    profile = { ...req.authUser }
+  }
+  delete profile.password
+  delete profile.otp
+  delete profile.otpExpires
+  return res.status(200).json({
+    success: true,
+    data: profile,
+  });
+};
+
+// Get patient by National ID (used by NFC scan / receptionist lookup)
+export const getPatientByNationalId = async (req, res, next) => {
+  const { nationalId } = req.params;
+
+  const patient = await Patient.findOne({ nationalId });
+  if (!patient) {
+    return next(new AppError(messages.patient.notExist, 404));
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: messages.patient.fetchedSuccessfully,
+    data: patient,
   });
 };

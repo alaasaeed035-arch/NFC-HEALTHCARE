@@ -27,7 +27,7 @@ export const deleteAdminSchema = joi.object({
 export const createHospitalAdminSchema = joi.object({
     fullName : generalFields.name.required(),
     email : generalFields.email.required(),
-    password : generalFields.password.required(),
-    phoneNumber : generalFields.phoneNumber.required(),
+    password : joi.string().min(6).required(),
+    phoneNumber : generalFields.phoneNumber.optional(),
     hospitalId : generalFields.objectId.required(),
 })

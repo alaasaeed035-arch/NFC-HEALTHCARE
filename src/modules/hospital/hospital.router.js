@@ -5,7 +5,7 @@ import { roles } from "../../utils/constant/enum.js";
 import { isValid } from "../../middleware/vaildation.js";
 import { deleteHospitalByIdSchema, getHospitalByIdSchema, hospitalSchema, updateHospitalSchema } from "./hospital.validation.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { createHospital, deleteHospitalById, getAllHospitals, getHospitalById, updateHospital } from "./hospital.controller.js";
+import { createHospital, deleteHospitalById, getAllHospitals, getHospitalById, getPublicHospitals, updateHospital } from "./hospital.controller.js";
 
 
 
@@ -29,10 +29,12 @@ hospitalRouter.put("/update/:hospitalId",
     asyncHandler(updateHospital)
 );
 
+// public hospital list — no auth required (used for doctor signup page)
+hospitalRouter.get("/public", asyncHandler(getPublicHospitals))
+
 // get all hospitals route
 hospitalRouter.get("/",
     isAuthenticated(),
-    isAuthorized([roles.ADMIN , roles.SUPER_ADMIN , roles.PATIENT , roles.DOCTOR]),
     asyncHandler(getAllHospitals)
 )
 
@@ -40,8 +42,6 @@ hospitalRouter.get("/",
 // get hospital by id route
 hospitalRouter.get("/:hospitalId",
     isAuthenticated(),
-    isAuthorized([roles.ADMIN , roles.SUPER_ADMIN , roles.PATIENT , roles.DOCTOR]),
-    isValid(getHospitalByIdSchema),
     asyncHandler(getHospitalById)
 )
 

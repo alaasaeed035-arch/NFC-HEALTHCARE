@@ -3,19 +3,17 @@ import { model, Schema } from "mongoose";
 const medicalRecordSchema = new Schema(
   {
     patientId: {
-      type: Schema.Types.ObjectId,
+      type: Schema.Types.Mixed, // Accept both ObjectId and String (legacy records)
       ref: "Patient",
       required: true,
     },
     doctorId: {
       type: Schema.Types.ObjectId,
       ref: "Doctor",
-      required: true,
     },
     hospitalId: {
       type: Schema.Types.ObjectId,
       ref: "Hospital",
-      required: true,
     },
     diagnosis: {
       type: String,
@@ -70,7 +68,7 @@ const medicalRecordSchema = new Schema(
       },
     },
   },
-  { timestamps: true }
+  { timestamps: true, strict: false }
 );
 
 medicalRecordSchema.index({ patientId: 1 });

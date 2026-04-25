@@ -5,7 +5,7 @@ import { isAuthenticated } from "../../middleware/authentication.js";
 import { isAuthorized } from "../../middleware/autheraization.js";
 import { roles } from "../../utils/constant/enum.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { createAdmin, createAdminHospital, deleteAdminById, getAllAdmin } from "./admin.controller.js";
+import { createAdmin, createAdminHospital, deleteAdminById, getAllAdmin, getAllHospitalAdmins } from "./admin.controller.js";
 
 
 const adminRouter = Router();
@@ -42,6 +42,13 @@ adminRouter.delete("/admin/:adminId",
     isValid(deleteAdminSchema),
     asyncHandler(deleteAdminById)
 )
+
+// get all hospital admins route
+adminRouter.get("/hospital-admins",
+    isAuthenticated(),
+    isAuthorized([roles.SUPER_ADMIN, roles.ADMIN]),
+    asyncHandler(getAllHospitalAdmins)
+);
 
 // create hospital admin route
 adminRouter.post("/create-hospital-admin",

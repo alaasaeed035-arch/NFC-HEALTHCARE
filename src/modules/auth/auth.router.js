@@ -2,7 +2,7 @@ import { Router } from "express";
 import { isValid } from "../../middleware/vaildation.js";
 import { forgetDoctorPasswordSchema, loginPatientSchema, loginSchema, resetDoctorPasswordSchema, signupDoctorSchema, signupPatientSchema, updateDoctorProfileSchema, updatePatientProfileSchema } from "./auth.validation.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { forgetPasswordDoctor, getPatientProfile, getProfileDoctor, login, loginPatient, signupDoctor, signupPatient, updateDoctorProfile, updatePatientProfile, verifyDoctorAccount, verifyOtpAndResetPasswordDoctor, getAllPatients, getAllDoctors } from "./auth.controller.js";
+import { forgetPasswordDoctor, getPatientProfile, getProfileDoctor, login, loginPatient, signupDoctor, signupPatient, updateDoctorProfile, updatePatientProfile, verifyDoctorAccount, verifyOtpAndResetPasswordDoctor, getAllPatients, getAllDoctors, getMyProfile, getPatientByNationalId } from "./auth.controller.js";
 import { isAuthenticated } from "../../middleware/authentication.js";
 import { isAuthorized } from "../../middleware/autheraization.js";
 import { roles } from "../../utils/constant/enum.js";
@@ -12,7 +12,12 @@ import { roles } from "../../utils/constant/enum.js";
 const authRouter = Router();
 
 // patient signup route
-authRouter.post('/signup/patient', isValid(signupPatientSchema), asyncHandler(signupPatient));
+authRouter.post('/signup/patient',
+    isAuthenticated(),
+    isAuthorized([roles.RECEPTIONIST, roles.ADMIN_HOSPITAL, roles.ADMIN, roles.SUPER_ADMIN]),
+    isValid(signupPatientSchema),
+    asyncHandler(signupPatient)
+);
 
 // patient login route
 authRouter.post('/login/patient', isValid(loginPatientSchema), asyncHandler(loginPatient));
@@ -72,17 +77,26 @@ authRouter.put('/doctor/update',
 // get all patients
 authRouter.get('/patients',
     isAuthenticated(),
-    isAuthorized([roles.ADMIN, roles.DOCTOR, roles.RECEPTIONIST, roles.SUPER_ADMIN]),
+    isAuthorized([roles.ADMIN, roles.DOCTOR, roles.RECEPTIONIST, roles.SUPER_ADMIN, roles.ADMIN_HOSPITAL]),
     asyncHandler(getAllPatients)
 );
 
 // get all doctors
 authRouter.get('/doctors',
     isAuthenticated(),
-    // isAuthorized([roles.ADMIN, roles.SUPER_ADMIN, roles.PATIENT]), // Doctors public? Or authorized?
-    // Let's allow authenticated users to see doctors
-    isAuthenticated(),
     asyncHandler(getAllDoctors)
+);
+
+// get current user profile (any authenticated role)
+authRouter.get('/me',
+    isAuthenticated(),
+    asyncHandler(getMyProfile)
+);
+
+// get patient by national ID (NFC scan / receptionist lookup)
+authRouter.get('/patient/by-national-id/:nationalId',
+    isAuthenticated(),
+    asyncHandler(getPatientByNationalId)
 );
 
 export default authRouter;

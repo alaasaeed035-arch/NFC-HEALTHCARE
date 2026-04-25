@@ -46,10 +46,16 @@ const patientSchema = new Schema(
       phone: String,
       relation: String,
     },
-    //cardId: {
-    //type: String,
-    //unique: true,
-    //},
+    cardId: {
+      type: String,
+      trim: true,
+      unique: true,
+      sparse: true,
+    },
+    hospitalId: {
+      type: Schema.Types.ObjectId,
+      ref: "Hospital",
+    },
     surgerys: {
       type: [String],
       default: [],

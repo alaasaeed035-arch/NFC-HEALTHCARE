@@ -5,39 +5,42 @@ import { verifyToken } from "../utils/token.js"
 
 export const isAuthenticated = () => {
     return async (req, res, next) => {
-        // token from headers
         const { token } = req.headers
         if (!token) {
             return next(new AppError("token not provided", 401))
         }
-        // decoded token 
+        
         const payload = verifyToken( token )
-        // if token is valid
         if (payload.message) {
             return next(new AppError(payload.message, 401))
         }
-        // check user exist in User collection
-        let authUser = await User.findOne({ _id: payload._id, isVerified: true })
-        
-        // if not found in User, check Doctor collection
-        if (!authUser) {
-            authUser = await Doctor.findOne({ _id: payload._id, isVerified: true })
-        }
-        
-        // if not found in Doctor, check Patient collection
-        if (!authUser) {
-            // Patients are staff-created (no email verification flow), so
-            // match existing docs regardless of whether the field is present yet.
-            authUser = await Patient.findOne({
-                _id: payload._id,
-                $or: [{ isVerified: true }, { isVerified: { $exists: false } }],
-            })
+
+        let authUser = null
+        const model = payload.model
+
+        // Look up account in the correct collection — no isVerified gate
+        // so ALL patients, doctors, and users can authenticate
+        if (model === 'USER') {
+            authUser = await User.findById(payload._id)
+        } else if (model === 'DOCTOR') {
+            authUser = await Doctor.findById(payload._id)
+        } else if (model === 'PATIENT') {
+            authUser = await Patient.findById(payload._id)
+        } else {
+            // Fallback: try all collections when model is not specified
+            authUser = await User.findById(payload._id)
+            if (!authUser) {
+                authUser = await Doctor.findById(payload._id)
+            }
+            if (!authUser) {
+                authUser = await Patient.findById(payload._id)
+            }
         }
         
         if (!authUser) {
             return next(new AppError(messages.user.notExist, 404))
         }
-        // set user to req
+        
         req.authUser = authUser
         next()
     }

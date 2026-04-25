@@ -27,7 +27,7 @@ export const generalFields = {
         duration: joi.string().trim(),
       })),
     visitDate: joi.date().default(Date.now),
-    nationalId: joi.string().trim().pattern(/^[0-9]{14}$/),   // Egyptian National ID is always 14 digits
+    nationalId: joi.string().trim().min(1),   // Accept any non-empty string for national ID
     gender: joi.string().valid(...Object.values(genderTypes)),
     dateOfBirth: joi.string()
         .regex(/^\d{4}-(0?[1-9]|1[0-2])-(0?[1-9]|[12][0-9]|3[01])$/)

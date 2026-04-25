@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #0055BB;
+  --primary-light: #E8F0FE;
+  --background: #F8FAFC;
+  --sidebar-bg: #0F172A;
+}
+
+body {
+  background-color: var(--background);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer utilities {
+  .severity-critical { @apply bg-red-50 text-red-700 border border-red-300; }
+  .severity-high     { @apply bg-orange-50 text-orange-800 border border-orange-300; }
+  .severity-moderate { @apply bg-orange-50 text-orange-600 border border-orange-200; }
+  .severity-low      { @apply bg-green-50 text-green-700 border border-green-300; }
+  .severity-none     { @apply bg-gray-50 text-gray-600 border border-gray-200; }
+  .severity-unknown  { @apply bg-gray-50 text-gray-500 border border-gray-200; }
+}
