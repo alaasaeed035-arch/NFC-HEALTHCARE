@@ -160,7 +160,8 @@ export default function ReceptionistDashboard() {
       setRegisterPatientOpen(false)
       setPatientForm({
         firstName: '', lastName: '', nationalId: '', gender: '', dateOfBirth: '',
-        bloodType: '', phoneNumber: '', address: '',
+        bloodType: '', phoneNumber: '', address: '', cardId: '',
+        ecName: '', ecPhone: '', ecRelation: '',
       })
       fetchAll()
     } catch (err: unknown) {
@@ -432,7 +433,8 @@ export default function ReceptionistDashboard() {
           if (!v) {
             setPatientForm({
               firstName: '', lastName: '', nationalId: '', gender: '', dateOfBirth: '',
-              bloodType: '', phoneNumber: '', address: '',
+              bloodType: '', phoneNumber: '', address: '', cardId: '',
+              ecName: '', ecPhone: '', ecRelation: '',
             })
             setFormErrors({})
           }
