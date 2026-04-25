@@ -121,13 +121,6 @@ export const updateHospital = async (req, res, next) => {
 // Get all hospitals
 export const getAllHospitals = async (req, res, next) => {
   const hospitals = await Hospital.find();
-
-  // Check if hospitals exist
-  if (!hospitals || hospitals.length === 0) {
-    return next(new AppError(messages.hospital.failToFetch, 404));
-  }
-
-  // Send response
   return res.status(200).json({
     success: true,
     message: messages.hospital.fetchedSuccessfully,
@@ -161,6 +154,13 @@ export const getHospitalById = async (req, res, next) => {
     }
   });
 };
+
+
+// Public hospital list — returns only name + _id (no auth required, used for signup)
+export const getPublicHospitals = async (req, res, next) => {
+  const hospitals = await Hospital.find({}, 'name _id')
+  return res.status(200).json({ success: true, data: hospitals })
+}
 
 
 // delete hospital by id

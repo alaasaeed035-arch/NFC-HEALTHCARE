@@ -5,7 +5,7 @@ import { roles } from "../../utils/constant/enum.js";
 import { isValid } from "../../middleware/vaildation.js";
 import {  deleteReceptionistSchema, receptionistHospitalSchema, updateReceptionistSchema } from "./admin_hospital.validation.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { createReceptionist, deleteReceptionist, getAdminHospitalProfile, getAllReceptionists, updateReceptionist } from "./admin_hospital.controller.js";
+import { createReceptionist, deleteReceptionist, getAdminHospitalProfile, getAllReceptionists, updateReceptionist, getHospitalDoctors, getHospitalPatients } from "./admin_hospital.controller.js";
 
 
 const adminHospitalRouter = Router();
@@ -42,6 +42,20 @@ adminHospitalRouter.delete('/:receptionistId',
     isValid(deleteReceptionistSchema),
     asyncHandler(deleteReceptionist)
 )
+
+// get patients for this hospital
+adminHospitalRouter.get('/patients',
+    isAuthenticated(),
+    isAuthorized([roles.ADMIN_HOSPITAL, roles.RECEPTIONIST]),
+    asyncHandler(getHospitalPatients)
+);
+
+// get doctors for this hospital
+adminHospitalRouter.get('/doctors',
+    isAuthenticated(),
+    isAuthorized([roles.ADMIN_HOSPITAL, roles.RECEPTIONIST]),
+    asyncHandler(getHospitalDoctors)
+);
 
 // get profile admin hospital route
 adminHospitalRouter.get('/profile',

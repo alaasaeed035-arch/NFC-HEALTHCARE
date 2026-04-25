@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { AppError } from '../../utils/appError.js';
 import { messages } from '../../utils/constant/messages.js';
 import { generateToken, verifyToken } from '../../utils/token.js';
@@ -11,12 +11,13 @@ import { generateOTP, sendOTP } from '../../utils/OTP.js';
 
 // patient signup
 export const signupPatient = async (req, res, next) => {
-  const {firstName, lastName, nationalId,gender,dateOfBirth,bloodType,phoneNumber,address,emergencyContact,cardId,surgerys,ChronicDiseases} = req.body;
+  const { firstName, lastName, nationalId, gender, dateOfBirth, bloodType, phoneNumber, address, emergencyContact, cardId, surgerys, ChronicDiseases } = req.body;
+  const hospitalId = req.authUser?.hospitalId ?? null;
 
   // check if patient already exists
-  const patientExist = await Patient.findOne({
-    $or: [{ nationalId }, { cardId }]
-  });
+  const orConditions = [{ nationalId }]
+  if (cardId) orConditions.push({ cardId })
+  const patientExist = await Patient.findOne({ $or: orConditions });
 
   if (patientExist) {
     return next(new AppError(messages.patient.alreadyExist, 409));
@@ -36,7 +37,8 @@ export const signupPatient = async (req, res, next) => {
     cardId,
     surgerys,
     ChronicDiseases,
-    role : roles.PATIENT,
+    role: roles.PATIENT,
+    hospitalId,
   });
 
   // save patient
@@ -62,22 +64,18 @@ export const signupPatient = async (req, res, next) => {
 
 // patient login
 export const loginPatient = async (req, res, next) => {
-  // Get data from the request
   const { nationalId } = req.body;
 
-  // Find patient by national ID
   const patient = await Patient.findOne({ nationalId });
 
   if (!patient) {
     return next(new AppError(messages.patient.notExist, 404));
   }
 
-  // Generate token with _id (standard auth expects payload._id)
   const token = generateToken({
-    payload: { _id: patient._id, nationalId: patient.nationalId }
+    payload: { _id: patient._id, nationalId: patient.nationalId, model: 'PATIENT' }
   });
 
-  // Send response
   return res.status(200).json({
     message: messages.patient.loginSuccessfully,
     success: true,
@@ -199,17 +197,28 @@ export const login = async (req, res, next) => {
   let account = null;
   let accountType = null;
 
-  //  Try User collection first
-  account = await User.findOne({ email }).select("+password");
+  //  Try User collection first (admin, super_admin, admin_hospital, receptionist)
+  //  Search by email OR fullName since admin accounts use fullName as username
+  account = await User.findOne({
+    $or: [{ email: email }, { fullName: email }],
+  });
   if (account) {
     accountType = "USER";
   }
 
   //  If not found → try Doctor collection
   if (!account) {
-    account = await Doctor.findOne({ email }).select("+password");
+    account = await Doctor.findOne({ email });
     if (account) {
       accountType = "DOCTOR";
+    }
+  }
+
+  //  If not found → try Patient collection (patients with email)
+  if (!account) {
+    account = await Patient.findOne({ email });
+    if (account) {
+      accountType = "PATIENT";
     }
   }
 
@@ -218,18 +227,17 @@ export const login = async (req, res, next) => {
     return next(new AppError(messages.user.invalidCredentials, 401));
   }
 
-  //  Check password
-  const isPasswordValid = bcrypt.compareSync(password, account.password);
-  if (!isPasswordValid) {
+  //  Check password (skip if account has no password, e.g. patient with nationalId-only login)
+  if (account.password) {
+    const isPasswordValid = bcrypt.compareSync(password, account.password);
+    if (!isPasswordValid) {
+      return next(new AppError(messages.user.invalidCredentials, 401));
+    }
+  } else {
     return next(new AppError(messages.user.invalidCredentials, 401));
   }
 
-  //  Check verification
-  if (account.isVerified === false) {
-    return next(new AppError(messages.user.notVerified, 403));
-  }
-
-  //  Generate token
+  //  Generate token (no verification gate — all accounts can login)
   const token = generateToken({
     payload: {
       _id: account._id,
@@ -287,77 +295,77 @@ export const getProfileDoctor = async (req, res, next) => {
 
 // Forget Password (Doctor)
 export const forgetPasswordDoctor = async (req, res, next) => {
-    const { email } = req.body;
+  const { email } = req.body;
 
-    // check existence
-    const doctorExist = await Doctor.findOne({ email });
-    if (!doctorExist) {
-        return next(new AppError(messages.doctor.notExist, 401));
-    }
+  // check existence
+  const doctorExist = await Doctor.findOne({ email });
+  if (!doctorExist) {
+    return next(new AppError(messages.doctor.notExist, 401));
+  }
 
-    // generate OTP
-    const otp = generateOTP();
+  // generate OTP
+  const otp = generateOTP();
 
-    //  SEND EMAIL WITH OTP
-    await sendOTP(doctorExist.email, otp);
+  //  SEND EMAIL WITH OTP
+  await sendOTP(doctorExist.email, otp);
 
-    // save OTP + expiry
-    doctorExist.otp = otp;
-    doctorExist.otpExpires = Date.now() + 10 * 60 * 1000;
+  // save OTP + expiry
+  doctorExist.otp = otp;
+  doctorExist.otpExpires = Date.now() + 10 * 60 * 1000;
 
-    const saved = await doctorExist.save();
-    if (!saved) {
-        return next(new AppError(messages.doctor.failToUpdate, 500));
-    }
+  const saved = await doctorExist.save();
+  if (!saved) {
+    return next(new AppError(messages.doctor.failToUpdate, 500));
+  }
 
-    return res.status(200).json({
-        message: messages.doctor.otpSent,
-        success: true,
-    });
+  return res.status(200).json({
+    message: messages.doctor.otpSent,
+    success: true,
+  });
 };
 
 // Verify OTP & Reset Password (Doctor)
 export const verifyOtpAndResetPasswordDoctor = async (req, res, next) => {
-    const { email, otp, newPassword } = req.body;
+  const { email, otp, newPassword } = req.body;
 
-    // find doctor (include password)
-    const doctor = await Doctor.findOne({ email }).select("+password");
-    if (!doctor) {
-        return next(new AppError(messages.doctor.notExist, 404));
-    }
+  // find doctor (include password)
+  const doctor = await Doctor.findOne({ email }).select("+password");
+  if (!doctor) {
+    return next(new AppError(messages.doctor.notExist, 404));
+  }
 
-    // convert otp to string to avoid mismatch (fixes most errors)
-    const storedOtp = String(doctor.otp);
-    const enteredOtp = String(otp);
+  // convert otp to string to avoid mismatch (fixes most errors)
+  const storedOtp = String(doctor.otp);
+  const enteredOtp = String(otp);
 
-    // check otp validity
-    if (storedOtp !== enteredOtp || Date.now() > doctor.otpExpires) {
-        return next(new AppError(messages.doctor.invalidOTP, 400));
-    }
+  // check otp validity
+  if (storedOtp !== enteredOtp || Date.now() > doctor.otpExpires) {
+    return next(new AppError(messages.doctor.invalidOTP, 400));
+  }
 
-    // check new password is not same as old
-    const isSame = await bcrypt.compare(newPassword, doctor.password);
-    if (isSame) {
-        return next(new AppError(messages.doctor.samePassword, 400));
-    }
+  // check new password is not same as old
+  const isSame = await bcrypt.compare(newPassword, doctor.password);
+  if (isSame) {
+    return next(new AppError(messages.doctor.samePassword, 400));
+  }
 
-    // hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+  // hash new password
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // update doctor password + clear otp
-    doctor.password = hashedPassword;
-    doctor.otp = undefined;
-    doctor.otpExpires = undefined;
+  // update doctor password + clear otp
+  doctor.password = hashedPassword;
+  doctor.otp = undefined;
+  doctor.otpExpires = undefined;
 
-    const updated = await doctor.save();
-    if (!updated) {
-        return next(new AppError(messages.doctor.failToUpdate, 400));
-    }
+  const updated = await doctor.save();
+  if (!updated) {
+    return next(new AppError(messages.doctor.failToUpdate, 400));
+  }
 
-    return res.status(200).json({
-        message: messages.doctor.passwordUpdated,
-        success: true
-    });
+  return res.status(200).json({
+    message: messages.doctor.passwordUpdated,
+    success: true
+  });
 };
 
 
@@ -467,5 +475,77 @@ export const updateDoctorProfile = async (req, res, next) => {
     message: messages.doctor.updated,
     success: true,
     data: updatedDoctor,
+  });
+};
+
+// Get All Patients
+export const getAllPatients = async (req, res, next) => {
+  const patients = await Patient.find();
+  return res.status(200).json({
+    message: "Patients fetched successfully",
+    success: true,
+    data: patients
+  });
+};
+
+// Get All Doctors
+export const getAllDoctors = async (req, res, next) => {
+  // Populate hospital info if needed
+  const doctors = await Doctor.find().populate("hospitalId");
+  return res.status(200).json({
+    message: "Doctors fetched successfully",
+    success: true,
+    data: doctors
+  });
+};
+
+// Get All Receptionists (ADMIN / SUPER_ADMIN)
+export const getAllReceptionists = async (req, res, next) => {
+  const receptionists = await User.find({ role: roles.RECEPTIONIST }).select('-password').populate('hospitalId', 'name');
+  const data = receptionists.map(r => {
+    const obj = r.toObject()
+    const parts = (obj.fullName || '').trim().split(/\s+/)
+    obj.firstName = parts[0] || ''
+    obj.lastName = parts.slice(1).join(' ') || ''
+    return obj
+  })
+  return res.status(200).json({
+    message: "Receptionists fetched successfully",
+    success: true,
+    count: data.length,
+    data,
+  });
+};
+
+// Get current user profile (works for any role)
+export const getMyProfile = async (req, res, next) => {
+  let profile
+  if (req.authUser.toObject) {
+    profile = { ...req.authUser.toObject() }
+  } else {
+    profile = { ...req.authUser }
+  }
+  delete profile.password
+  delete profile.otp
+  delete profile.otpExpires
+  return res.status(200).json({
+    success: true,
+    data: profile,
+  });
+};
+
+// Get patient by National ID (used by NFC scan / receptionist lookup)
+export const getPatientByNationalId = async (req, res, next) => {
+  const { nationalId } = req.params;
+
+  const patient = await Patient.findOne({ nationalId });
+  if (!patient) {
+    return next(new AppError(messages.patient.notExist, 404));
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: messages.patient.fetchedSuccessfully,
+    data: patient,
   });
 };

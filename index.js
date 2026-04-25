@@ -1,21 +1,20 @@
-import path from 'path'
+
 import express from 'express'
 import dotenv from 'dotenv'
 import { dbConnection } from './db/connection.js';
 import { bootStrap } from './src/bootStrap.js';
 
+dotenv.config();
 const app = express()
-const port = process.env.PORT || 3000;
-dotenv.config({ path: 'config/.env', debug: false });
 
-// Middleware to parse JSON bodies
+// Middleware
 app.use(express.json());
 
-// db connection
-dbConnection()
-// api 
-bootStrap(app, express)
+// DB connection
+dbConnection();
 
+// routes
+bootStrap(app, express);
 
-
-app.listen(port, () => console.log(`app listening on port ${port}!`))
+// IMPORTANT: DO NOT listen on Vercel
+export default app;

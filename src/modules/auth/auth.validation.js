@@ -35,10 +35,10 @@ export const signupDoctorSchema = joi.object({
     role : generalFields.role.optional(),
 })
 
-// doctor login validation
+// staff/admin/doctor login validation (accepts email or fullName as identifier)
 export const loginSchema = joi.object({
-    email : generalFields.email.required(),
-    password : generalFields.password.required(),
+    email : joi.string().trim().required(),
+    password : joi.string().required(),
 })
 
 // forget doctor password validation

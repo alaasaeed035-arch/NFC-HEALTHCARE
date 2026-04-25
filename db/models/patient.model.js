@@ -48,7 +48,13 @@ const patientSchema = new Schema(
     },
     cardId: {
       type: String,
+      trim: true,
       unique: true,
+      sparse: true,
+    },
+    hospitalId: {
+      type: Schema.Types.ObjectId,
+      ref: "Hospital",
     },
     surgerys: {
       type: [String],
@@ -63,6 +69,10 @@ const patientSchema = new Schema(
       type: String,
       enum: Object.values(roles),
       default: roles.PATIENT,
+    },
+    isVerified: {
+      type: Boolean,
+      default: true,
     },
   },
   { timestamps: true }

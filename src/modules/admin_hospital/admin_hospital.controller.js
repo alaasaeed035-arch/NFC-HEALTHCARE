@@ -1,25 +1,21 @@
-import bcrypt from "bcrypt";
-import { User } from "../../../db/index.js";
+import bcrypt from "bcryptjs";
+import { User, Doctor, Patient } from "../../../db/index.js";
 import { AppError } from "../../utils/appError.js";
 import { roles } from "../../utils/constant/enum.js";
 import { messages } from "../../utils/constant/messages.js";
 import { generateToken } from "../../utils/token.js";
 
-// Create Receptionist (by ADMIN_HOSPITAL only)
+// Create Receptionist (by ADMIN_HOSPITAL, ADMIN, or SUPER_ADMIN)
 export const createReceptionist = async (req, res, next) => {
-  const { fullName, email, phoneNumber, password } = req.body;
+  const { firstName, lastName, email, phoneNumber, password } = req.body;
+  const fullName = `${firstName ?? ''} ${lastName ?? ''}`.trim();
 
   // admin hospital from auth middleware
   const adminHospital = req.authUser;
 
-  // ensure creator is ADMIN_HOSPITAL
-  if (adminHospital.role !== roles.ADMIN_HOSPITAL) {
-    return next(new AppError(messages.user.unauthorized, 403));
-  }
-
   // check duplicate email or phone
   const exist = await User.findOne({
-    $or: [{ email }, { phoneNumber }],
+    $or: [{ email }, ...(phoneNumber ? [{ phoneNumber }] : [])],
   });
   if (exist) {
     return next(new AppError(messages.user.alreadyExist, 409));
@@ -118,26 +114,30 @@ export const updateReceptionist = async (req, res, next) => {
 export const getAllReceptionists = async (req, res, next) => {
   const adminHospital = req.authUser;
 
-  // Ensure admin hospital has hospitalId
-  if (!adminHospital.hospitalId) {
-    return next(new AppError(messages.hospital.notExist, 404));
-  }
-
-  // Fetch receptionists for same hospital
+  // Fetch receptionists belonging to this hospital, or those not yet linked to any hospital
   const receptionists = await User.find({
     role: roles.RECEPTIONIST,
-    hospitalId: adminHospital.hospitalId,
+    $or: [
+      { hospitalId: adminHospital.hospitalId },
+      { hospitalId: { $exists: false } },
+      { hospitalId: null },
+    ],
   }).select("-password");
 
-  if (!receptionists.length) {
-    return next(new AppError(messages.user.notExist, 404));
-  }
+  // Split fullName into firstName/lastName for frontend compatibility
+  const data = receptionists.map(r => {
+    const obj = r.toObject()
+    const parts = (obj.fullName || '').trim().split(/\s+/)
+    obj.firstName = parts[0] || ''
+    obj.lastName = parts.slice(1).join(' ') || ''
+    return obj
+  })
 
   return res.status(200).json({
     message: messages.user.fetchedSuccessfully,
     success: true,
-    count: receptionists.length,
-    data: receptionists,
+    count: data.length,
+    data,
   });
 };
 
@@ -177,6 +177,36 @@ export const deleteReceptionist = async (req, res, next) => {
   return res.status(200).json({
     message: messages.user.deleted,
     success: true,
+  });
+};
+
+// Get patients belonging to the authenticated user's hospital
+export const getHospitalPatients = async (req, res, next) => {
+  const hospitalId = req.authUser.hospitalId;
+  if (!hospitalId) {
+    return next(new AppError(messages.hospital.notExist, 404));
+  }
+  const patients = await Patient.find({ hospitalId });
+  return res.status(200).json({
+    message: messages.user.fetchedSuccessfully,
+    success: true,
+    count: patients.length,
+    data: patients,
+  });
+};
+
+// Get doctors belonging to the authenticated user's hospital
+export const getHospitalDoctors = async (req, res, next) => {
+  const hospitalId = req.authUser.hospitalId;
+  if (!hospitalId) {
+    return next(new AppError(messages.hospital.notExist, 404));
+  }
+  const doctors = await Doctor.find({ hospitalId }).select('-password');
+  return res.status(200).json({
+    message: messages.user.fetchedSuccessfully,
+    success: true,
+    count: doctors.length,
+    data: doctors,
   });
 };
 

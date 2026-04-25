@@ -3,10 +3,11 @@ import { generalFields } from '../../middleware/vaildation.js';
 
 // receptionist creation validation
 export const receptionistHospitalSchema = joi.object({
-    fullName : generalFields.name.required(),
+    firstName : generalFields.name.required(),
+    lastName : generalFields.name.required(),
     email : generalFields.email.required(),
-    phoneNumber : generalFields.phoneNumber.required(),
-    password : generalFields.password.required(),
+    phoneNumber : generalFields.phoneNumber.optional(),
+    password : joi.string().min(6).required(),
     hospitalId : generalFields.objectId.optional(),
 })
 

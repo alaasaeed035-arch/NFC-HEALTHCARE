@@ -2,11 +2,17 @@ import { connect } from "mongoose";
 
 
 export const dbConnection = () => {
-    connect(process.env.DB_URL)
+    connect(process.env.MONGO_URI || process.env.DB_URL, {
+        serverSelectionTimeoutMS: 3000, // Fail fast after 3 seconds
+        socketTimeoutMS: 3000,
+        connectTimeoutMS: 3000,
+    })
         .then(() => {
-            console.log('DB connected successfully')
+            console.log('✅ MongoDB connected successfully')
         })
         .catch((err) => {
-            console.log("Failed to connect DB", err)
+            console.error("❌ Failed to connect to MongoDB:", err.message)
+            console.warn("⚠️  Backend will attempt to run without MongoDB")
+            console.warn("⚠️  Database operations will fail until MongoDB is available")
         })
 }  

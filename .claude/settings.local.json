@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "mcp__codex__codex",
+      "Bash(curl -s \"http://localhost:3000/auth/receptionists\" -H \"token: invalid\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP: %{http_code}\\\\n\" \"http://localhost:3000/auth/receptionists\" -H \"token: invalid\")"
+    ]
+  }
+}

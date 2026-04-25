@@ -8,7 +8,7 @@ export const hospitalSchema = joi.object({
     phoneNumber : generalFields.phoneNumber.required(),
     email : generalFields.email.required(),
     hotline : generalFields.hotline.required(),
-    departments : generalFields.departments.required(),
+    departments : generalFields.departments.optional(),
     licenseNumber : generalFields.licenseNumber.optional(),
 })
 

@@ -1,4 +1,4 @@
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { AppError } from "../../utils/appError.js";
 import { messages } from "../../utils/constant/messages.js";
 import { roles } from "../../utils/constant/enum.js";
@@ -60,7 +60,7 @@ export const loginSuperAdmin = async (req, res, next) => {
     return next(new AppError(messages.user.passwordInvalid, 400)); // Friendly message
   }
 
-  const token = generateToken({ payload: { _id: superAdmin._id, role: superAdmin.role } });
+  const token = generateToken({ payload: { _id: superAdmin._id, role: superAdmin.role, model: 'USER' } });
 
   res.status(200).json({
     message: messages.user.loginSuccess,
@@ -112,7 +112,7 @@ export const loginAdmin = async (req, res, next) => {
   const { email, password } = req.body;
 
   // Check if admin exists
-  const admin = await User.findOne({ email, role: roles.ADMIN, isVerified: true });
+  const admin = await User.findOne({ email, role: roles.ADMIN });
   if (!admin) {
     return next(new AppError(messages.user.notExist, 404));
   }
@@ -124,7 +124,7 @@ export const loginAdmin = async (req, res, next) => {
   }
 
   // Generate token
-  const token = generateToken({ payload: { _id: admin._id, role: admin.role } });
+  const token = generateToken({ payload: { _id: admin._id, role: admin.role, model: 'USER' } });
 
   // Send response
   res.status(200).json({
@@ -182,6 +182,17 @@ export const deleteAdminById = async (req, res, next) => {
   });
 };
 
+// Get all hospital admins
+export const getAllHospitalAdmins = async (req, res, next) => {
+  const admins = await User.find({ role: roles.ADMIN_HOSPITAL }).select('-password').populate('hospitalId', 'name');
+  return res.status(200).json({
+    message: 'Hospital admins fetched successfully',
+    success: true,
+    count: admins.length,
+    data: admins,
+  });
+};
+
 // Create Hospital Admin (SUPER_ADMIN or ADMIN only)
 export const createAdminHospital = async (req, res, next) => {
   const { fullName, email, phoneNumber, password, hospitalId } = req.body;
@@ -234,11 +245,10 @@ export const createAdminHospital = async (req, res, next) => {
 export const loginHospitalAdmin = async (req, res, next) => {
   const { email, password } = req.body;
 
-  // Find the user with role ADMIN_HOSPITAL and verified
+  // Find the user with role ADMIN_HOSPITAL
   const adminHospital = await User.findOne({
     email,
     role: roles.ADMIN_HOSPITAL,
-    isVerified: true,
   });
 
   if (!adminHospital) {
@@ -253,7 +263,7 @@ export const loginHospitalAdmin = async (req, res, next) => {
 
   // Generate token
   const token = generateToken({
-    payload: { _id: adminHospital._id, role: adminHospital.role },
+    payload: { _id: adminHospital._id, role: adminHospital.role, model: 'USER' },
   });
 
   // Hide password in response
