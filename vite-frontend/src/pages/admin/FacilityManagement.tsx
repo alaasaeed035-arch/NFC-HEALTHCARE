@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
-  Building2, UserPlus, Pencil, Trash2, Phone, MapPin, Mail
+  Building2, UserPlus, Pencil, Trash2, Phone, MapPin, Mail,
+  Users, Stethoscope, UserCog, LayoutDashboard, Search
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
+import { Badge } from '@/components/ui/Badge'
 import { Spinner } from '@/components/ui/Spinner'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table'
 import {
@@ -15,9 +17,18 @@ import {
 } from '@/components/ui/Dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import type { Hospital } from '@/types'
+import type { Hospital, Patient, Doctor } from '@/types'
 import client from '@/api/client'
 import { useToast } from '@/components/ui/Toast'
+
+interface ReceptionistRow {
+  _id: string
+  firstName: string
+  lastName: string
+  email: string
+  phoneNumber?: string
+  hospitalId?: { _id: string; name: string }
+}
 
 interface HospitalForm {
   name: string; address: string; phoneNumber: string; email: string; hotline: string; licenseNumber: string
@@ -29,12 +40,17 @@ interface AdminForm {
 export default function FacilityManagement() {
   const location = useLocation()
   const navigate = useNavigate()
-  const VALID_TABS = ['hospitals', 'admins']
+  const VALID_TABS = ['overview', 'hospitals', 'admins']
   const hashTab = location.hash.replace('#', '')
   const activeTab = VALID_TABS.includes(hashTab) ? hashTab : 'hospitals'
   const { toast } = useToast()
   const [hospitals, setHospitals] = useState<Hospital[]>([])
   const [hospitalAdmins, setHospitalAdmins] = useState<{ _id: string; fullName: string; email: string; phoneNumber?: string; hospitalId?: { _id: string; name: string } }[]>([])
+  const [patients, setPatients] = useState<Patient[]>([])
+  const [doctors, setDoctors] = useState<Doctor[]>([])
+  const [receptionists, setReceptionists] = useState<ReceptionistRow[]>([])
+  const [overviewSearch, setOverviewSearch] = useState('')
+  const [overviewRoleFilter, setOverviewRoleFilter] = useState<'all' | 'patient' | 'doctor' | 'receptionist'>('all')
   const [loading, setLoading] = useState(true)
   const [hospitalDialogOpen, setHospitalDialogOpen] = useState(false)
   const [adminDialogOpen, setAdminDialogOpen] = useState(false)
@@ -58,9 +74,12 @@ export default function FacilityManagement() {
   const fetchHospitals = async () => {
     setLoading(true)
     try {
-      const [hRes, aRes] = await Promise.allSettled([
+      const [hRes, aRes, pRes, dRes, rRes] = await Promise.allSettled([
         client.get('/hospital'),
         client.get('/admin/hospital-admins'),
+        client.get('/auth/patients'),
+        client.get('/auth/doctors'),
+        client.get('/auth/receptionists'),
       ])
       if (hRes.status === 'fulfilled') {
         const d = hRes.value.data
@@ -69,6 +88,18 @@ export default function FacilityManagement() {
       if (aRes.status === 'fulfilled') {
         const d = aRes.value.data
         setHospitalAdmins(Array.isArray(d) ? d : d.data ?? [])
+      }
+      if (pRes.status === 'fulfilled') {
+        const d = pRes.value.data
+        setPatients(Array.isArray(d) ? d : d.data ?? [])
+      }
+      if (dRes.status === 'fulfilled') {
+        const d = dRes.value.data
+        setDoctors(Array.isArray(d) ? d : d.data ?? [])
+      }
+      if (rRes.status === 'fulfilled') {
+        const d = rRes.value.data
+        setReceptionists(Array.isArray(d) ? d : d.data ?? [])
       }
     } finally {
       setLoading(false)
@@ -176,7 +207,10 @@ export default function FacilityManagement() {
   return (
     <div className="space-y-6">
       <Tabs value={activeTab} onValueChange={tab => navigate(`${location.pathname}#${tab}`, { replace: true })}>
-        <TabsList>
+        <TabsList className="flex-wrap h-auto">
+          <TabsTrigger value="overview">
+            <LayoutDashboard className="h-4 w-4 mr-1.5" />Overview
+          </TabsTrigger>
           <TabsTrigger value="hospitals">
             <Building2 className="h-4 w-4 mr-1.5" />Hospitals
           </TabsTrigger>
@@ -184,6 +218,145 @@ export default function FacilityManagement() {
             <UserPlus className="h-4 w-4 mr-1.5" />Hospital Admins
           </TabsTrigger>
         </TabsList>
+
+        {/* Overview Tab */}
+        <TabsContent value="overview">
+          {/* Stats row */}
+          <div className="grid sm:grid-cols-3 gap-4 mb-6">
+            {[
+              { label: 'Total Patients', value: patients.length, icon: Users, color: 'bg-blue-50 text-[#0055BB]' },
+              { label: 'Total Doctors', value: doctors.length, icon: Stethoscope, color: 'bg-green-50 text-green-600' },
+              { label: 'Receptionists', value: receptionists.length, icon: UserCog, color: 'bg-purple-50 text-purple-600' },
+            ].map(stat => {
+              const Icon = stat.icon
+              return (
+                <Card key={stat.label}>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-500">{stat.label}</p>
+                        <p className="text-3xl font-bold text-gray-900 mt-1">
+                          {loading ? <span className="h-8 w-16 bg-gray-100 rounded animate-pulse inline-block" /> : stat.value}
+                        </p>
+                      </div>
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${stat.color}`}>
+                        <Icon className="h-6 w-6" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+
+          {/* Combined table */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <CardTitle>All System Users</CardTitle>
+                <div className="flex gap-3 flex-wrap">
+                  <div className="relative min-w-[200px]">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Search users..."
+                      className="pl-9"
+                      value={overviewSearch}
+                      onChange={e => setOverviewSearch(e.target.value)}
+                    />
+                  </div>
+                  <Select value={overviewRoleFilter} onValueChange={v => setOverviewRoleFilter(v as typeof overviewRoleFilter)}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Roles</SelectItem>
+                      <SelectItem value="patient">Patients</SelectItem>
+                      <SelectItem value="doctor">Doctors</SelectItem>
+                      <SelectItem value="receptionist">Receptionists</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex justify-center py-8"><Spinner /></div>
+              ) : (() => {
+                type Row = { _id: string; name: string; email: string; extra: string; role: string }
+                const rows: Row[] = [
+                  ...(overviewRoleFilter === 'all' || overviewRoleFilter === 'patient'
+                    ? patients.map(p => ({
+                      _id: p._id,
+                      name: `${p.firstName} ${p.lastName}`,
+                      email: p.nationalId ?? '—',
+                      extra: p.bloodType ?? '—',
+                      role: 'patient',
+                    }))
+                    : []),
+                  ...(overviewRoleFilter === 'all' || overviewRoleFilter === 'doctor'
+                    ? doctors.map(d => ({
+                      _id: d._id,
+                      name: `${d.firstName} ${d.lastName}`,
+                      email: d.email,
+                      extra: d.specialization ?? '—',
+                      role: 'doctor',
+                    }))
+                    : []),
+                  ...(overviewRoleFilter === 'all' || overviewRoleFilter === 'receptionist'
+                    ? receptionists.map(r => ({
+                      _id: r._id,
+                      name: `${r.firstName} ${r.lastName}`,
+                      email: r.email,
+                      extra: r.hospitalId?.name ?? '—',
+                      role: 'receptionist',
+                    }))
+                    : []),
+                ]
+                const q = overviewSearch.toLowerCase()
+                const filtered = q
+                  ? rows.filter(r => r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q))
+                  : rows
+                const roleBadgeVariant = (role: string) =>
+                  role === 'doctor' ? 'default' : role === 'receptionist' ? 'secondary' : 'outline'
+                return (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Email / ID</TableHead>
+                        <TableHead>Details</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filtered.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center text-gray-400 py-8">No users found</TableCell>
+                        </TableRow>
+                      ) : filtered.map(row => (
+                        <TableRow key={`${row.role}-${row._id}`}>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600">
+                                {row.name.charAt(0).toUpperCase()}
+                              </div>
+                              <span className="font-medium">{row.name}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={roleBadgeVariant(row.role)} className="capitalize">{row.role}</Badge>
+                          </TableCell>
+                          <TableCell className="text-gray-500 text-xs">{row.email}</TableCell>
+                          <TableCell className="text-gray-500 text-xs">{row.extra}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )
+              })()}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Hospitals Tab */}
         <TabsContent value="hospitals">

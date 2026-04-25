@@ -46,6 +46,7 @@ const NAV_ITEMS: Record<Role, NavItem[]> = {
     { label: 'Doctors', to: '/admin-hospital/staff#doctors', icon: Stethoscope },
   ],
   admin: [
+    { label: 'Overview', to: '/admin/facilities#overview', icon: LayoutDashboard },
     { label: 'Facilities', to: '/admin/facilities', icon: Building2 },
     { label: 'Hospital Admins', to: '/admin/facilities#admins', icon: UserCog },
   ],
@@ -53,6 +54,7 @@ const NAV_ITEMS: Record<Role, NavItem[]> = {
     { label: 'Global Overview', to: '/super-admin/overview', icon: Globe },
     { label: 'All Users', to: '/super-admin/overview#users', icon: Users },
     { label: 'All Hospitals', to: '/super-admin/overview#hospitals', icon: Building2 },
+    { label: 'All Admins', to: '/super-admin/overview#admins', icon: UserCog },
   ],
 }
 
@@ -110,11 +112,10 @@ export function Sidebar({ onClose }: SidebarProps) {
                   navigate(item.to)
                   onClose?.()
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                  isActive
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${isActive
                     ? 'bg-[#0055BB] text-white font-medium'
                     : 'text-[#94A3B8] hover:bg-white/10 hover:text-white'
-                }`}
+                  }`}
               >
                 <Icon className="h-4 w-4 flex-shrink-0" />
                 <span>{item.label}</span>
@@ -128,11 +129,10 @@ export function Sidebar({ onClose }: SidebarProps) {
               onClick={onClose}
               className={() => {
                 const isActive = location.pathname === item.to && !location.hash
-                return `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                  isActive
+                return `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${isActive
                     ? 'bg-[#0055BB] text-white font-medium'
                     : 'text-[#94A3B8] hover:bg-white/10 hover:text-white'
-                }`
+                  }`
               }}
             >
               <Icon className="h-4 w-4 flex-shrink-0" />

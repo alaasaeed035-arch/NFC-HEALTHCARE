@@ -499,6 +499,24 @@ export const getAllDoctors = async (req, res, next) => {
   });
 };
 
+// Get All Receptionists (ADMIN / SUPER_ADMIN)
+export const getAllReceptionists = async (req, res, next) => {
+  const receptionists = await User.find({ role: roles.RECEPTIONIST }).select('-password').populate('hospitalId', 'name');
+  const data = receptionists.map(r => {
+    const obj = r.toObject()
+    const parts = (obj.fullName || '').trim().split(/\s+/)
+    obj.firstName = parts[0] || ''
+    obj.lastName = parts.slice(1).join(' ') || ''
+    return obj
+  })
+  return res.status(200).json({
+    message: "Receptionists fetched successfully",
+    success: true,
+    count: data.length,
+    data,
+  });
+};
+
 // Get current user profile (works for any role)
 export const getMyProfile = async (req, res, next) => {
   let profile
