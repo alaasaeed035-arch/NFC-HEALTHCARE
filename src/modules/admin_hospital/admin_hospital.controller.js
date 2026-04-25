@@ -1,4 +1,4 @@
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { User, Doctor, Patient } from "../../../db/index.js";
 import { AppError } from "../../utils/appError.js";
 import { roles } from "../../utils/constant/enum.js";
