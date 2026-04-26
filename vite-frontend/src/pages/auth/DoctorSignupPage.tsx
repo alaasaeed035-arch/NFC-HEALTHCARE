@@ -1,17 +1,10 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Activity, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
-import { Spinner } from '@/components/ui/Spinner'
 import client from '@/api/client'
-
-interface HospitalOption {
-  _id: string
-  name: string
-}
 
 interface FormData {
   firstName: string
@@ -30,8 +23,6 @@ const EMPTY: FormData = {
 }
 
 export default function DoctorSignupPage() {
-  const [hospitals, setHospitals] = useState<HospitalOption[]>([])
-  const [loadingHospitals, setLoadingHospitals] = useState(true)
   const [form, setForm] = useState<FormData>(EMPTY)
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({})
   const [submitting, setSubmitting] = useState(false)
@@ -39,30 +30,25 @@ export default function DoctorSignupPage() {
   const [success, setSuccess] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
-  useEffect(() => {
-    client.get('/hospital/public')
-      .then(res => setHospitals(res.data?.data ?? []))
-      .catch(() => {})
-      .finally(() => setLoadingHospitals(false))
-  }, [])
-
   const set = (field: keyof FormData, value: string) => {
     setForm(prev => ({ ...prev, [field]: value }))
     setErrors(prev => ({ ...prev, [field]: '' }))
+    setApiError('')
   }
 
   const validate = (): boolean => {
     const e: Partial<Record<keyof FormData, string>> = {}
-    if (!form.firstName.trim()) e.firstName = 'Required'
-    if (!form.lastName.trim()) e.lastName = 'Required'
-    if (!form.email.trim()) e.email = 'Required'
+    if (!form.firstName.trim())       e.firstName = 'Required'
+    if (!form.lastName.trim())        e.lastName = 'Required'
+    if (!form.email.trim())           e.email = 'Required'
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Invalid email address'
-    if (!form.password) e.password = 'Required'
+    if (!form.password)               e.password = 'Required'
     else if (form.password.length < 6) e.password = 'Minimum 6 characters'
     if (form.password !== form.confirmPassword) e.confirmPassword = 'Passwords do not match'
-    if (!form.specialization.trim()) e.specialization = 'Required'
-    if (!form.phoneNumber.trim()) e.phoneNumber = 'Required'
-    if (!form.hospitalId) e.hospitalId = 'Please select your hospital'
+    if (!form.specialization.trim())  e.specialization = 'Required'
+    if (!form.phoneNumber.trim())     e.phoneNumber = 'Required'
+    if (!form.hospitalId.trim())      e.hospitalId = 'Hospital ID is required'
+    else if (!/^[a-fA-F0-9]{24}$/.test(form.hospitalId.trim())) e.hospitalId = 'Invalid hospitalId'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -74,13 +60,13 @@ export default function DoctorSignupPage() {
     setApiError('')
     try {
       await client.post('/auth/signup/doctor', {
-        firstName: form.firstName,
-        lastName: form.lastName,
-        email: form.email,
-        password: form.password,
+        firstName:      form.firstName,
+        lastName:       form.lastName,
+        email:          form.email,
+        password:       form.password,
         specialization: form.specialization,
-        phoneNumber: form.phoneNumber,
-        hospitalId: form.hospitalId,
+        phoneNumber:    form.phoneNumber,
+        hospitalId:     form.hospitalId.trim(),
       })
       setSuccess(true)
     } catch (err: unknown) {
@@ -207,25 +193,18 @@ export default function DoctorSignupPage() {
                 <Input type="tel" placeholder="+20 1xx xxx xxxx" value={form.phoneNumber} onChange={e => set('phoneNumber', e.target.value)} />
               </Field>
 
-              <Field label="Hospital *" error={errors.hospitalId}>
-                {loadingHospitals ? (
-                  <div className="flex items-center gap-2 h-10 px-3 rounded-md border border-gray-200 bg-gray-50 text-sm text-gray-400">
-                    <Spinner size="sm" /> Loading hospitals...
-                  </div>
-                ) : hospitals.length === 0 ? (
-                  <p className="text-sm text-red-500">No hospitals registered yet. Contact your administrator.</p>
-                ) : (
-                  <Select value={form.hospitalId} onValueChange={v => set('hospitalId', v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your hospital..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {hospitals.map(h => (
-                        <SelectItem key={h._id} value={h._id}>{h.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
+              <Field
+                label="Hospital ID *"
+                error={errors.hospitalId}
+                hint="Enter the Hospital ID provided by your administrator"
+              >
+                <Input
+                  placeholder="e.g. 507f1f77bcf86cd799439011"
+                  value={form.hospitalId}
+                  onChange={e => set('hospitalId', e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
               </Field>
 
               {apiError && (
@@ -258,11 +237,22 @@ export default function DoctorSignupPage() {
   )
 }
 
-function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
+function Field({
+  label,
+  error,
+  hint,
+  children,
+}: {
+  label: string
+  error?: string
+  hint?: string
+  children: React.ReactNode
+}) {
   return (
     <div className="space-y-1">
       <Label>{label}</Label>
       {children}
+      {hint && !error && <p className="text-xs text-gray-400">{hint}</p>}
       {error && <p className="text-xs text-red-500">{error}</p>}
     </div>
   )

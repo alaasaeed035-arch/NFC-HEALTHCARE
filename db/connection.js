@@ -1,11 +1,14 @@
 import { connect } from "mongoose";
+import { setDefaultResultOrder, setServers } from "dns";
 
+setServers(["8.8.8.8", "8.8.4.4"]);
+setDefaultResultOrder("ipv4first");
 
 export const dbConnection = () => {
-    connect(process.env.MONGO_URI || process.env.DB_URL, {
-        serverSelectionTimeoutMS: 3000, // Fail fast after 3 seconds
-        socketTimeoutMS: 3000,
-        connectTimeoutMS: 3000,
+    connect(process.env.DB_URL, {
+        serverSelectionTimeoutMS: 30000,
+        socketTimeoutMS: 45000,
+        connectTimeoutMS: 30000,
     })
         .then(() => {
             console.log('✅ MongoDB connected successfully')

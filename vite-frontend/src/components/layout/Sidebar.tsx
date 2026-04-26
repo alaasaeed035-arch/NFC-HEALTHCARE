@@ -14,7 +14,6 @@ import {
   LogOut,
   Activity,
   UserCog,
-  Globe,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import type { Role } from '@/types'
@@ -50,12 +49,7 @@ const NAV_ITEMS: Record<Role, NavItem[]> = {
     { label: 'Facilities', to: '/admin/facilities', icon: Building2 },
     { label: 'Hospital Admins', to: '/admin/facilities#admins', icon: UserCog },
   ],
-  super_admin: [
-    { label: 'Global Overview', to: '/super-admin/overview', icon: Globe },
-    { label: 'All Users', to: '/super-admin/overview#users', icon: Users },
-    { label: 'All Hospitals', to: '/super-admin/overview#hospitals', icon: Building2 },
-    { label: 'All Admins', to: '/super-admin/overview#admins', icon: UserCog },
-  ],
+  super_admin: [],
 }
 
 const ROLE_LABELS: Record<Role, string> = {

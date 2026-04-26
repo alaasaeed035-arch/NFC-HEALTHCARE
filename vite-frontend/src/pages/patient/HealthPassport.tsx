@@ -94,6 +94,50 @@ export default function HealthPassport() {
         </div>
       </div>
 
+      {/* Personal Details */}
+      <div className="grid sm:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-1.5 text-xs text-gray-400 uppercase tracking-wide mb-2">
+              <MapPin className="h-3.5 w-3.5" />Address
+            </div>
+            {patient.address
+              ? <p className="text-sm text-gray-800">{patient.address}</p>
+              : <p className="text-sm text-gray-400 italic">Not provided</p>}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-1.5 text-xs text-gray-400 uppercase tracking-wide mb-2">
+              <CreditCard className="h-3.5 w-3.5" />NFC Card ID
+            </div>
+            {patient.cardId
+              ? <p className="text-sm text-gray-800 font-mono break-all">{patient.cardId}</p>
+              : <p className="text-sm text-gray-400 italic">No card linked</p>}
+          </CardContent>
+        </Card>
+
+        <Card className={patient.emergencyContact ? 'border-red-100' : ''}>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-1.5 text-xs text-red-400 uppercase tracking-wide mb-2">
+              <AlertTriangle className="h-3.5 w-3.5" />Emergency Contact
+            </div>
+            {patient.emergencyContact ? (
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium text-gray-800">{patient.emergencyContact.name}</p>
+                <p className="text-xs text-gray-500">{patient.emergencyContact.relation}</p>
+                <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                  <Phone className="h-3 w-3" />{patient.emergencyContact.phone}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 italic">Not provided</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <Tabs defaultValue="history">
         <TabsList className="w-full sm:w-auto flex-wrap h-auto">
           <TabsTrigger value="history">Medical History</TabsTrigger>
@@ -294,15 +338,6 @@ export default function HealthPassport() {
           )}
         </TabsContent>
 
-        {/* Hospitals Near Me */}
-        <TabsContent value="hospitals">
-          <Card>
-            <CardContent className="pt-5 text-center text-gray-500">
-              <Building2 className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-              <p className="text-sm">Hospital listings are available on the main dashboard</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </div>
   )

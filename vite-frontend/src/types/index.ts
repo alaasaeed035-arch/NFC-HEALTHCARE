@@ -24,6 +24,7 @@ export interface Patient {
   phoneNumber?: string
   address?: string
   emergencyContact?: { name: string; phone: string; relation: string }
+  cardId?: string
   surgerys?: string[]
   ChronicDiseases?: string[]
   role: 'patient'
@@ -90,10 +91,10 @@ export type DDISeverity = 'critical' | 'high' | 'moderate' | 'low' | 'none' | 'u
 export interface DDIReport {
   _id: string
   patient_id: string
-  patient_name: string
-  patient_age: number
-  current_medications: { name: string; dosage: string; frequency: string; notes?: string }[]
-  new_treatment: { name: string; dosage: string; frequency: string; notes?: string }
+  patient_name?: string
+  patient_age?: number
+  current_medications?: { name: string; dosage: string; frequency: string; notes?: string }[]
+  new_treatment?: { name: string; dosage: string; frequency: string; notes?: string }
   analysis: {
     has_conflict: boolean
     severity: DDISeverity
@@ -119,6 +120,7 @@ export interface Receptionist {
   email: string
   hospitalId: string
   role: 'receptionist'
+  isVerified?: boolean
 }
 
 export interface ApiResponse<T> {

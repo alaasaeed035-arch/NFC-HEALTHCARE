@@ -37,7 +37,7 @@ export const bootStrap = (app, express) => {
   app.use("/api/ddi-reports", ddiRouter);
 
   // SPA catch-all — must be after all API routes
-  app.get("*", (req, res) => {
+  app.get("/{*splat}", (req, res) => {
     const indexPath = join(distPath, "index.html");
     if (existsSync(indexPath)) {
       res.sendFile(indexPath);

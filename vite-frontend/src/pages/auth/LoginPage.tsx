@@ -191,11 +191,18 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            {loginType === 'staff' && (
+            {loginType === 'staff' ? (
               <p className="mt-4 text-center text-sm text-gray-500">
                 New doctor?{' '}
                 <Link to="/signup/doctor" className="text-[#0055BB] font-medium hover:underline">
                   Register here
+                </Link>
+              </p>
+            ) : (
+              <p className="mt-4 text-center text-sm text-gray-500">
+                New patient?{' '}
+                <Link to="/signup/patient" className="text-[#0055BB] font-medium hover:underline">
+                  Create your account
                 </Link>
               </p>
             )}

@@ -2,7 +2,7 @@ import joi from 'joi';
 import { generalFields } from '../../middleware/vaildation.js';
 
 
-// patient signup validation
+// patient signup validation (staff-initiated — cardId required)
 export const signupPatientSchema = joi.object({
     firstName : generalFields.name.required(),
     lastName : generalFields.name.required(),
@@ -13,6 +13,28 @@ export const signupPatientSchema = joi.object({
     phoneNumber : generalFields.phoneNumber.required(),
     address : generalFields.address.required(),
     emergencyContact : generalFields.emergencyContact.required(),
+    cardId : generalFields.cardId.optional(),
+    surgerys : generalFields.surgerys.optional(),
+    ChronicDiseases : generalFields.ChronicDiseases.optional(),
+})
+
+// patient self-registration (public route — stricter emergency contact)
+export const selfSignupPatientSchema = joi.object({
+    firstName : generalFields.name.required(),
+    lastName : generalFields.name.required(),
+    nationalId : generalFields.nationalId.required(),
+    gender: generalFields.gender.required(),
+    dateOfBirth: generalFields.dateOfBirth.required(),
+    bloodType: generalFields.bloodType.optional(),
+    phoneNumber : generalFields.phoneNumber.required(),
+    address : generalFields.address.required(),
+    emergencyContact : joi.object({
+        name: joi.string().trim().required(),
+        phone: joi.string().pattern(/^01[0-2,5]{1}[0-9]{8}$/).required().messages({
+            'string.pattern.base': 'Emergency contact phone must be a valid Egyptian mobile number',
+        }),
+        relation: joi.string().trim().required(),
+    }).required(),
     cardId : generalFields.cardId.optional(),
     surgerys : generalFields.surgerys.optional(),
     ChronicDiseases : generalFields.ChronicDiseases.optional(),

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Search, UserPlus, Wifi, ChevronRight, Stethoscope, Users, ClipboardList } from 'lucide-react'
+import { Search, UserPlus, Wifi, Stethoscope, Users, ClipboardList, Eye, MapPin, Phone, CreditCard, Contact } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -23,10 +23,6 @@ interface PatientFormData {
   dateOfBirth: string; bloodType: string; phoneNumber: string; address: string
   cardId: string; ecName: string; ecPhone: string; ecRelation: string
 }
-interface DoctorFormData {
-  firstName: string; lastName: string; email: string; password: string
-  specialization: string; phoneNumber: string; hospitalId: string
-}
 
 const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
 
@@ -43,24 +39,19 @@ export default function ReceptionistDashboard() {
   const [searchPatient, setSearchPatient] = useState('')
   const [searchDoctor, setSearchDoctor] = useState('')
 
-  const [hospitals, setHospitals] = useState<{ _id: string; name: string }[]>([])
-
   const [nfcOpen, setNfcOpen] = useState(false)
   const [scannedPatient, setScannedPatient] = useState<Patient | null>(null)
   const [assignDoctor, setAssignDoctor] = useState('')
   const [assigning, setAssigning] = useState(false)
 
+  const [viewPatient, setViewPatient] = useState<Patient | null>(null)
   const [registerPatientOpen, setRegisterPatientOpen] = useState(false)
-  const [registerDoctorOpen, setRegisterDoctorOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   const [patientForm, setPatientForm] = useState<PatientFormData>({
     firstName: '', lastName: '', nationalId: '', gender: '', dateOfBirth: '',
     bloodType: '', phoneNumber: '', address: '', cardId: '',
     ecName: '', ecPhone: '', ecRelation: '',
-  })
-  const [doctorForm, setDoctorForm] = useState<DoctorFormData>({
-    firstName: '', lastName: '', email: '', password: '', specialization: '', phoneNumber: '', hospitalId: '',
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
@@ -71,10 +62,9 @@ export default function ReceptionistDashboard() {
   const fetchAll = async () => {
     setLoading(true)
     try {
-      const [pRes, dRes, hRes] = await Promise.allSettled([
+      const [pRes, dRes] = await Promise.allSettled([
         client.get('/admin-hospital/patients'),
         client.get('/admin-hospital/doctors'),
-        client.get('/hospital/public'),
       ])
       if (pRes.status === 'fulfilled') {
         const d = pRes.value.data
@@ -83,10 +73,6 @@ export default function ReceptionistDashboard() {
       if (dRes.status === 'fulfilled') {
         const d = dRes.value.data
         setDoctors(Array.isArray(d) ? d : d.data ?? [])
-      }
-      if (hRes.status === 'fulfilled') {
-        const d = hRes.value.data
-        setHospitals(Array.isArray(d) ? d : d.data ?? [])
       }
     } finally {
       setLoading(false)
@@ -124,18 +110,6 @@ export default function ReceptionistDashboard() {
     return Object.keys(errs).length === 0
   }
 
-  const validateDoctorForm = (): boolean => {
-    const errs: Record<string, string> = {}
-    if (!doctorForm.firstName.trim()) errs.firstName = 'Required'
-    if (!doctorForm.lastName.trim()) errs.lastName = 'Required'
-    if (!doctorForm.email.trim()) errs.email = 'Required'
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(doctorForm.email)) errs.email = 'Invalid email'
-    if (!doctorForm.password || doctorForm.password.length < 6) errs.password = 'Min 6 characters'
-    if (!doctorForm.hospitalId) errs.hospitalId = 'Required'
-    setFormErrors(errs)
-    return Object.keys(errs).length === 0
-  }
-
   const handleRegisterPatient = async () => {
     if (!validatePatientForm()) return
     setSubmitting(true)
@@ -146,9 +120,9 @@ export default function ReceptionistDashboard() {
         nationalId: patientForm.nationalId,
         gender: patientForm.gender,
         dateOfBirth: patientForm.dateOfBirth,
-        bloodType: patientForm.bloodType,
-        phoneNumber: patientForm.phoneNumber,
-        address: patientForm.address,
+        bloodType: patientForm.bloodType || undefined,
+        phoneNumber: patientForm.phoneNumber || undefined,
+        address: patientForm.address || undefined,
         ...(patientForm.cardId ? { cardId: patientForm.cardId } : {}),
         emergencyContact: {
           name: patientForm.ecName,
@@ -172,29 +146,8 @@ export default function ReceptionistDashboard() {
     }
   }
 
-  const handleRegisterDoctor = async () => {
-    if (!validateDoctorForm()) return
-    setSubmitting(true)
-    try {
-      await client.post('/auth/signup/doctor', doctorForm)
-      toast({ title: 'Doctor registered successfully', variant: 'success' })
-      setRegisterDoctorOpen(false)
-      setDoctorForm({ firstName: '', lastName: '', email: '', password: '', specialization: '', phoneNumber: '', hospitalId: '' })
-      fetchAll()
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } }
-      toast({ title: e?.response?.data?.message ?? 'Failed to register doctor', variant: 'error' })
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   const pf = (field: keyof PatientFormData, value: string) => {
     setPatientForm(prev => ({ ...prev, [field]: value }))
-    setFormErrors(prev => ({ ...prev, [field]: '' }))
-  }
-  const df = (field: keyof DoctorFormData, value: string) => {
-    setDoctorForm(prev => ({ ...prev, [field]: value }))
     setFormErrors(prev => ({ ...prev, [field]: '' }))
   }
 
@@ -329,15 +282,17 @@ export default function ReceptionistDashboard() {
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>National ID</TableHead>
-                      <TableHead>Gender</TableHead>
                       <TableHead>Blood Type</TableHead>
                       <TableHead>Phone</TableHead>
+                      <TableHead>Address</TableHead>
+                      <TableHead>Card ID</TableHead>
+                      <TableHead className="w-12"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredPatients.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-gray-400 py-8">
+                        <TableCell colSpan={7} className="text-center text-gray-400 py-8">
                           No patients found
                         </TableCell>
                       </TableRow>
@@ -345,13 +300,26 @@ export default function ReceptionistDashboard() {
                       <TableRow key={p._id}>
                         <TableCell>
                           <div className="font-medium">{p.firstName} {p.lastName}</div>
+                          <div className="text-xs text-gray-400">{p.gender}</div>
                         </TableCell>
                         <TableCell>{p.nationalId}</TableCell>
-                        <TableCell>{p.gender}</TableCell>
                         <TableCell>
-                          {p.bloodType && <Badge variant="secondary">{p.bloodType}</Badge>}
+                          {p.bloodType ? <Badge variant="secondary">{p.bloodType}</Badge> : <span className="text-gray-400">—</span>}
                         </TableCell>
-                        <TableCell>{p.phoneNumber ?? '—'}</TableCell>
+                        <TableCell>{p.phoneNumber ?? <span className="text-gray-400">—</span>}</TableCell>
+                        <TableCell className="text-gray-500 text-xs max-w-[140px] truncate">{p.address ?? <span className="text-gray-400">—</span>}</TableCell>
+                        <TableCell className="text-gray-500 text-xs font-mono">{p.cardId ?? <span className="text-gray-400">—</span>}</TableCell>
+                        <TableCell>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-gray-400 hover:text-[#0055BB]"
+                            aria-label="View patient details"
+                            onClick={() => setViewPatient(p)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -361,16 +329,11 @@ export default function ReceptionistDashboard() {
           </Card>
         </TabsContent>
 
-        {/* Doctors Tab */}
+        {/* Doctors Tab — view only, no registration */}
         <TabsContent value="doctors">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <CardTitle>Registered Doctors ({doctors.length})</CardTitle>
-                <Button onClick={() => setRegisterDoctorOpen(true)} size="sm">
-                  <UserPlus className="h-4 w-4 mr-1.5" />Register Doctor
-                </Button>
-              </div>
+              <CardTitle>Hospital Doctors ({doctors.length})</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="relative mb-4">
@@ -424,6 +387,79 @@ export default function ReceptionistDashboard() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Patient Detail Dialog */}
+      <Dialog open={!!viewPatient} onOpenChange={open => { if (!open) setViewPatient(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Patient Details</DialogTitle>
+            <DialogDescription>Full profile information</DialogDescription>
+          </DialogHeader>
+          {viewPatient && (
+            <div className="space-y-4">
+              {/* Identity */}
+              <div className="rounded-xl bg-gradient-to-br from-[#0055BB] to-[#003380] p-4 text-white">
+                <p className="text-xl font-bold">{viewPatient.firstName} {viewPatient.lastName}</p>
+                <p className="text-sm opacity-80 mt-0.5">ID: {viewPatient.nationalId}</p>
+                <div className="flex items-center gap-4 mt-2 text-sm opacity-90">
+                  <span>{viewPatient.gender}</span>
+                  {viewPatient.bloodType && <Badge className="bg-white/20 text-white border-0">{viewPatient.bloodType}</Badge>}
+                  {viewPatient.dateOfBirth && <span>DOB: {viewPatient.dateOfBirth}</span>}
+                </div>
+              </div>
+
+              {/* Contact & Address */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Contact</p>
+                <div className="grid gap-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                    <span className="text-gray-700">{viewPatient.phoneNumber ?? <span className="text-gray-400">Not provided</span>}</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-sm">
+                    <MapPin className="h-3.5 w-3.5 text-gray-400 flex-shrink-0 mt-0.5" />
+                    <span className="text-gray-700">{viewPatient.address ?? <span className="text-gray-400">Not provided</span>}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <CreditCard className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                    <span className="text-gray-700 font-mono">{viewPatient.cardId ?? <span className="text-gray-400 font-sans">No card linked</span>}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Emergency Contact */}
+              {viewPatient.emergencyContact && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Emergency Contact</p>
+                  <div className="rounded-lg border border-red-100 bg-red-50 p-3 space-y-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Contact className="h-3.5 w-3.5 text-red-400 flex-shrink-0" />
+                      <span className="font-medium text-gray-800">{viewPatient.emergencyContact.name}</span>
+                      <span className="text-gray-500 text-xs">({viewPatient.emergencyContact.relation})</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm pl-5">
+                      <span className="text-gray-700">{viewPatient.emergencyContact.phone}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Medical */}
+              {(viewPatient.ChronicDiseases?.length || viewPatient.surgerys?.length) ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Medical History</p>
+                  {viewPatient.ChronicDiseases?.length ? (
+                    <div className="text-sm"><span className="text-gray-500">Chronic: </span>{viewPatient.ChronicDiseases.join(', ')}</div>
+                  ) : null}
+                  {viewPatient.surgerys?.length ? (
+                    <div className="text-sm"><span className="text-gray-500">Surgeries: </span>{viewPatient.surgerys.join(', ')}</div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Register Patient Dialog */}
       <Dialog
@@ -505,63 +541,6 @@ export default function ReceptionistDashboard() {
             <Button variant="outline" onClick={() => setRegisterPatientOpen(false)}>Cancel</Button>
             <Button onClick={handleRegisterPatient} disabled={submitting}>
               {submitting ? <Spinner size="sm" /> : 'Register Patient'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Register Doctor Dialog */}
-      <Dialog
-        open={registerDoctorOpen}
-        onOpenChange={v => {
-          setRegisterDoctorOpen(v)
-          if (!v) {
-            setDoctorForm({ firstName: '', lastName: '', email: '', password: '', specialization: '', phoneNumber: '', hospitalId: '' })
-            setFormErrors({})
-          }
-        }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Register New Doctor</DialogTitle>
-            <DialogDescription>Fill in the doctor details below</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="First Name *" error={formErrors.firstName}>
-                <Input value={doctorForm.firstName} onChange={e => df('firstName', e.target.value)} placeholder="First name" />
-              </FormField>
-              <FormField label="Last Name *" error={formErrors.lastName}>
-                <Input value={doctorForm.lastName} onChange={e => df('lastName', e.target.value)} placeholder="Last name" />
-              </FormField>
-            </div>
-            <FormField label="Email *" error={formErrors.email}>
-              <Input type="email" value={doctorForm.email} onChange={e => df('email', e.target.value)} placeholder="doctor@hospital.com" />
-            </FormField>
-            <FormField label="Password *" error={formErrors.password}>
-              <Input type="password" value={doctorForm.password} onChange={e => df('password', e.target.value)} placeholder="Min 6 characters" />
-            </FormField>
-            <FormField label="Specialization" error="">
-              <Input value={doctorForm.specialization} onChange={e => df('specialization', e.target.value)} placeholder="e.g., Cardiology" />
-            </FormField>
-            <FormField label="Phone Number" error="">
-              <Input value={doctorForm.phoneNumber} onChange={e => df('phoneNumber', e.target.value)} placeholder="Phone" />
-            </FormField>
-            <FormField label="Hospital *" error={formErrors.hospitalId}>
-              <Select value={doctorForm.hospitalId} onValueChange={v => df('hospitalId', v)}>
-                <SelectTrigger><SelectValue placeholder="Select hospital..." /></SelectTrigger>
-                <SelectContent>
-                  {hospitals.map(h => (
-                    <SelectItem key={h._id} value={h._id}>{h.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FormField>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRegisterDoctorOpen(false)}>Cancel</Button>
-            <Button onClick={handleRegisterDoctor} disabled={submitting}>
-              {submitting ? <Spinner size="sm" /> : 'Register Doctor'}
             </Button>
           </DialogFooter>
         </DialogContent>

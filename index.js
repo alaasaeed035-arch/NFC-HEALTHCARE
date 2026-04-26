@@ -16,5 +16,10 @@ dbConnection();
 // routes
 bootStrap(app, express);
 
-// IMPORTANT: DO NOT listen on Vercel
+// Listen locally; Vercel handles this in serverless mode
+if (process.env.VERCEL !== '1') {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+}
+
 export default app;

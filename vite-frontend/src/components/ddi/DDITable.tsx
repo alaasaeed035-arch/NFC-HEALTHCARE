@@ -117,23 +117,23 @@ export function DDITable({ patientId, patientIds, reports: propReports, hideAuto
                     </TableCell>
                     <TableCell>
                       <div className="font-medium text-gray-900">{r.patient_name}</div>
-                      <div className="text-xs text-gray-500">Age: {r.patient_age}</div>
+                      {r.patient_age != null && <div className="text-xs text-gray-500">Age: {r.patient_age}</div>}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        {r.current_medications.slice(0, 3).map((m, i) => (
+                        {(r.current_medications ?? []).slice(0, 3).map((m, i) => (
                           <span key={i} className="inline-block bg-gray-100 text-gray-700 rounded px-1.5 py-0.5 text-xs">
                             {m.name}
                           </span>
                         ))}
-                        {r.current_medications.length > 3 && (
+                        {(r.current_medications?.length ?? 0) > 3 && (
                           <span className="text-xs text-gray-400">+{r.current_medications.length - 3}</span>
                         )}
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className="font-medium">{r.new_treatment.name}</span>
-                      <div className="text-xs text-gray-500">{r.new_treatment.dosage}</div>
+                      <span className="font-medium">{r.new_treatment?.name ?? '—'}</span>
+                      {r.new_treatment?.dosage && <div className="text-xs text-gray-500">{r.new_treatment.dosage}</div>}
                     </TableCell>
                     <TableCell>
                       <SeverityBadge severity={r.analysis.severity} />

@@ -47,6 +47,10 @@ export const messages = {
         emailTaken: 'Email is already taken',
         cannotDeleteOtherHospitalAdmins: 'You can only delete hospital admins created by you',
         canOnlyDeleteReceptionists: 'You can only delete receptionists',
+        invalidOTP: 'The provided OTP is invalid or has expired',
+        otpSent: 'OTP has been sent to the email',
+        verified: 'Account verified successfully',
+        alreadyVerified: 'Account is already verified',
     },
     admin :{
         ...generateMessage('Admin'),

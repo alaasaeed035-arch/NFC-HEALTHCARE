@@ -96,10 +96,13 @@ export const signupDoctor = async (req, res, next) => {
     hospitalId
   } = req.body;
 
-  // Make sure hospital exists
+  // Validate hospitalId format then existence
+  if (!hospitalId || !hospitalId.match(/^[a-fA-F0-9]{24}$/)) {
+    return next(new AppError('Invalid hospitalId', 400));
+  }
   const hospitalExists = await Hospital.findById(hospitalId);
   if (!hospitalExists) {
-    return next(new AppError(messages.hospital.notExist, 404));
+    return next(new AppError('Invalid hospitalId', 404));
   }
 
   // Check if doctor already exists (email or phone)
@@ -137,10 +140,11 @@ export const signupDoctor = async (req, res, next) => {
   });
 
   // Send verification email
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.headers.host}`;
   await sendEmail({
     to: email,
     subject: "Verify your Doctor Account",
-    html: `<p>Click the link to verify your account: <a href="${req.protocol}://${req.headers.host}/auth/verify/${token}">Verify Account</a></p>`
+    html: `<p>Click the link to verify your account: <a href="${baseUrl}/auth/verify/${token}">Verify Account</a></p>`
   });
 
   // Send response
@@ -237,7 +241,12 @@ export const login = async (req, res, next) => {
     return next(new AppError(messages.user.invalidCredentials, 401));
   }
 
-  //  Generate token (no verification gate — all accounts can login)
+  //  Block unverified doctors
+  if (accountType === 'DOCTOR' && !account.isVerified) {
+    return next(new AppError('Your account is not verified. Please check your email and click the verification link.', 403));
+  }
+
+  //  Generate token
   const token = generateToken({
     payload: {
       _id: account._id,

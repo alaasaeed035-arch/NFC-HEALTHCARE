@@ -4,12 +4,12 @@ import DashboardLayout from '@/components/layout/DashboardLayout'
 import ProtectedRoute from './ProtectedRoute'
 import LoginPage from '@/pages/auth/LoginPage'
 import DoctorSignupPage from '@/pages/auth/DoctorSignupPage'
+import PatientSignupPage from '@/pages/auth/PatientSignupPage'
 import HealthPassport from '@/pages/patient/HealthPassport'
 import DoctorDashboard from '@/pages/doctor/DoctorDashboard'
 import ReceptionistDashboard from '@/pages/receptionist/ReceptionistDashboard'
 import StaffManagement from '@/pages/admin_hospital/StaffManagement'
 import FacilityManagement from '@/pages/admin/FacilityManagement'
-import GlobalOverview from '@/pages/super_admin/GlobalOverview'
 
 export default function AppRouter() {
   return (
@@ -18,6 +18,7 @@ export default function AppRouter() {
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup/doctor" element={<DoctorSignupPage />} />
+        <Route path="/signup/patient" element={<PatientSignupPage />} />
 
         <Route
           path="/patient/health-passport"
@@ -69,17 +70,6 @@ export default function AppRouter() {
             <ProtectedRoute allowedRoles={['admin']}>
               <DashboardLayout>
                 <FacilityManagement />
-              </DashboardLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/super-admin/overview"
-          element={
-            <ProtectedRoute allowedRoles={['super_admin']}>
-              <DashboardLayout>
-                <GlobalOverview />
               </DashboardLayout>
             </ProtectedRoute>
           }

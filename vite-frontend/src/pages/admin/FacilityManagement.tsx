@@ -57,6 +57,8 @@ export default function FacilityManagement() {
   const [editingHospital, setEditingHospital] = useState<Hospital | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [deleteAdminId, setDeleteAdminId] = useState<string | null>(null)
+  const [deletingAdmin, setDeletingAdmin] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   const [hospitalForm, setHospitalForm] = useState<HospitalForm>({
@@ -130,7 +132,7 @@ export default function FacilityManagement() {
     setSubmitting(true)
     try {
       if (editingHospital) {
-        await client.put(`/hospital/${editingHospital._id}`, hospitalForm)
+        await client.put(`/hospital/update/${editingHospital._id}`, hospitalForm)
         toast({ title: 'Hospital updated successfully', variant: 'success' })
       } else {
         await client.post('/hospital/create', hospitalForm)
@@ -152,7 +154,7 @@ export default function FacilityManagement() {
     if (!deleteId) return
     setDeleting(true)
     try {
-      await client.delete(`/hospital/${deleteId}`)
+      await client.delete(`/hospital/delete/${deleteId}`)
       toast({ title: 'Hospital deleted', variant: 'success' })
       setHospitals(prev => prev.filter(h => h._id !== deleteId))
       setDeleteId(null)
@@ -160,6 +162,22 @@ export default function FacilityManagement() {
       toast({ title: 'Failed to delete hospital', variant: 'error' })
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const handleDeleteAdmin = async () => {
+    if (!deleteAdminId) return
+    setDeletingAdmin(true)
+    try {
+      await client.delete(`/admin/hospital-admin/${deleteAdminId}`)
+      toast({ title: 'Hospital admin deleted', variant: 'success' })
+      setHospitalAdmins(prev => prev.filter(a => a._id !== deleteAdminId))
+      setDeleteAdminId(null)
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      toast({ title: e?.response?.data?.message ?? 'Failed to delete admin', variant: 'error' })
+    } finally {
+      setDeletingAdmin(false)
     }
   }
 
@@ -455,12 +473,13 @@ export default function FacilityManagement() {
                       <TableHead>Email</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead>Hospital</TableHead>
+                      <TableHead className="w-12"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {hospitalAdmins.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center text-gray-400 py-8">
+                        <TableCell colSpan={5} className="text-center text-gray-400 py-8">
                           No hospital admins yet
                         </TableCell>
                       </TableRow>
@@ -470,6 +489,17 @@ export default function FacilityManagement() {
                         <TableCell className="text-gray-500">{a.email}</TableCell>
                         <TableCell className="text-gray-500">{a.phoneNumber ?? '—'}</TableCell>
                         <TableCell>{a.hospitalId?.name ?? <span className="text-gray-400">—</span>}</TableCell>
+                        <TableCell>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-red-400 hover:text-red-600"
+                            aria-label="Delete admin"
+                            onClick={() => setDeleteAdminId(a._id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -488,6 +518,16 @@ export default function FacilityManagement() {
         confirmLabel="Delete"
         onConfirm={handleDeleteHospital}
         loading={deleting}
+      />
+
+      <ConfirmDialog
+        open={!!deleteAdminId}
+        onOpenChange={open => { if (!open) setDeleteAdminId(null) }}
+        title="Delete Hospital Admin"
+        description="This will permanently remove the hospital admin account and cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={handleDeleteAdmin}
+        loading={deletingAdmin}
       />
 
       {/* Hospital Dialog */}

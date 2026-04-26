@@ -241,6 +241,28 @@ export const createAdminHospital = async (req, res, next) => {
 };
 
 
+// Delete Hospital Admin (ADMIN or SUPER_ADMIN only)
+export const deleteHospitalAdmin = async (req, res, next) => {
+  const { adminId } = req.params;
+
+  const target = await User.findById(adminId);
+  if (!target) {
+    return next(new AppError(messages.admin.notExist, 404));
+  }
+
+  if (target.role !== roles.ADMIN_HOSPITAL) {
+    return next(new AppError(messages.admin.canOnlyDeleteAdmins, 403));
+  }
+
+  await target.deleteOne();
+
+  return res.status(200).json({
+    message: messages.admin.deletedSuccessfully,
+    success: true,
+  });
+};
+
+
 // Hospital Admin Login
 export const loginHospitalAdmin = async (req, res, next) => {
   const { email, password } = req.body;

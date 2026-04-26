@@ -26,3 +26,22 @@ export const updateReceptionistSchema = joi.object({
 export const deleteReceptionistSchema = joi.object({
     receptionistId : generalFields.objectId.required(),
 })
+
+// delete doctor validation
+export const deleteDoctorSchema = joi.object({
+    doctorId : generalFields.objectId.required(),
+})
+
+// verify receptionist OTP validation
+export const verifyReceptionistOtpSchema = joi.object({
+    receptionistId : generalFields.objectId.required(),
+    otp : joi.string().length(6).pattern(/^\d{6}$/).required().messages({
+        'string.length' : 'OTP must be exactly 6 digits',
+        'string.pattern.base' : 'OTP must contain only digits',
+    }),
+})
+
+// resend receptionist OTP validation
+export const resendReceptionistOtpSchema = joi.object({
+    receptionistId : generalFields.objectId.required(),
+})

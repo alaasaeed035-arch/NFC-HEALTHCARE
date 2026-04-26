@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { isValid } from "../../middleware/vaildation.js";
-import { createAdminSchema, createHospitalAdminSchema, deleteAdminSchema } from "./admin.validation.js";
+import { createAdminSchema, createHospitalAdminSchema, deleteAdminSchema, deleteHospitalAdminSchema } from "./admin.validation.js";
 import { isAuthenticated } from "../../middleware/authentication.js";
 import { isAuthorized } from "../../middleware/autheraization.js";
 import { roles } from "../../utils/constant/enum.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { createAdmin, createAdminHospital, deleteAdminById, getAllAdmin, getAllHospitalAdmins } from "./admin.controller.js";
+import { createAdmin, createAdminHospital, deleteAdminById, deleteHospitalAdmin, getAllAdmin, getAllHospitalAdmins } from "./admin.controller.js";
 
 
 const adminRouter = Router();
@@ -56,6 +56,14 @@ adminRouter.post("/create-hospital-admin",
     isAuthorized([roles.SUPER_ADMIN , roles.ADMIN]),
     isValid(createHospitalAdminSchema),
     asyncHandler(createAdminHospital)
+);
+
+// delete hospital admin route
+adminRouter.delete("/hospital-admin/:adminId",
+    isAuthenticated(),
+    isAuthorized([roles.SUPER_ADMIN, roles.ADMIN]),
+    isValid(deleteHospitalAdminSchema),
+    asyncHandler(deleteHospitalAdmin)
 );
 
 

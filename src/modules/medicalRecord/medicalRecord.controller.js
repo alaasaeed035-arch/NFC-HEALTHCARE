@@ -1,4 +1,4 @@
-import { Doctor, Hospital, MedicalRecord, Patient } from "../../../db/index.js";
+import { ConflictAnalysis, Doctor, Hospital, MedicalRecord, Patient } from "../../../db/index.js";
 import { AppError } from "../../utils/appError.js";
 import { roles } from "../../utils/constant/enum.js";
 import { messages } from "../../utils/constant/messages.js";
@@ -39,10 +39,12 @@ export const addMedicalRecord = async (req, res, next) => {
 
   // AI Conflict Checking - Check medications for conflicts
   let aiAnalysisData = null;
+  let rawConflictResults = null;
   if (medications && medications.length > 0) {
     try {
       console.log('Running AI conflict check for medications...');
       const conflictResults = await checkMultipleDrugConflicts(patientExists, medications);
+      rawConflictResults = conflictResults;
 
       // Find the most severe conflict
       let mostSevereConflict = null;
@@ -101,6 +103,36 @@ export const addMedicalRecord = async (req, res, next) => {
   const createdRecord = await record.save();
   if (!createdRecord) {
     return next(new AppError(messages.medicalRecord.failToCreate, 500));
+  }
+
+  // Persist each per-medication DDI result to conflict_analyses
+  if (rawConflictResults) {
+    const patientAge = patientExists.dateOfBirth
+      ? Math.floor((Date.now() - new Date(patientExists.dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+      : undefined;
+    const docs = rawConflictResults
+      .filter(r => r.analysis && r.medication)
+      .map(r => ({
+        patient_id: patientId.toString(),
+        patient_name: `${patientExists.firstName} ${patientExists.lastName}`,
+        patient_age: patientAge,
+        doctor_id: doctorId.toString(),
+        record_id: createdRecord._id.toString(),
+        new_treatment: r.medication,
+        analysis: {
+          has_conflict: r.analysis.has_conflict || false,
+          severity: r.analysis.severity || 'none',
+          analysis: r.analysis.analysis || '',
+          recommendations: r.analysis.recommendations || [],
+          interactions: r.analysis.interactions || [],
+        },
+        created_at: new Date(),
+      }));
+    if (docs.length > 0) {
+      ConflictAnalysis.insertMany(docs, { ordered: false }).catch(err =>
+        console.error('Failed to persist conflict analyses:', err.message)
+      );
+    }
   }
 
   return res.status(201).json({
@@ -163,6 +195,7 @@ export const updateMedicalRecord = async (req, res, next) => {
   // Update fields if provided
   if (diagnosis) record.diagnosis = diagnosis;
   if (treatment) record.treatment = treatment;
+  let rawUpdateConflictResults = null;
   if (medications) {
     record.medications = medications;
 
@@ -171,6 +204,7 @@ export const updateMedicalRecord = async (req, res, next) => {
       const patientForAI = await Patient.findById(record.patientId);
       if (patientForAI && medications.length > 0) {
         const conflictResults = await checkMultipleDrugConflicts(patientForAI, medications);
+        rawUpdateConflictResults = conflictResults;
 
         let mostSevereConflict = null;
         let maxSeverity = 'none';
@@ -224,6 +258,37 @@ export const updateMedicalRecord = async (req, res, next) => {
   const updatedRecord = await record.save();
   if (!updatedRecord) {
     return next(new AppError(messages.medicalRecord.failToUpdate, 500));
+  }
+
+  // Persist each per-medication DDI result to conflict_analyses
+  if (rawUpdateConflictResults) {
+    const patientForAge = await Patient.findById(updatedRecord.patientId).select('firstName lastName dateOfBirth').lean().catch(() => null);
+    const patientAge = patientForAge?.dateOfBirth
+      ? Math.floor((Date.now() - new Date(patientForAge.dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+      : undefined;
+    const docs = rawUpdateConflictResults
+      .filter(r => r.analysis && r.medication)
+      .map(r => ({
+        patient_id: updatedRecord.patientId.toString(),
+        patient_name: patientForAge ? `${patientForAge.firstName} ${patientForAge.lastName}` : undefined,
+        patient_age: patientAge,
+        doctor_id: doctorId.toString(),
+        record_id: updatedRecord._id.toString(),
+        new_treatment: r.medication,
+        analysis: {
+          has_conflict: r.analysis.has_conflict || false,
+          severity: r.analysis.severity || 'none',
+          analysis: r.analysis.analysis || '',
+          recommendations: r.analysis.recommendations || [],
+          interactions: r.analysis.interactions || [],
+        },
+        created_at: new Date(),
+      }));
+    if (docs.length > 0) {
+      ConflictAnalysis.insertMany(docs, { ordered: false }).catch(err =>
+        console.error('Failed to persist conflict analyses on update:', err.message)
+      );
+    }
   }
 
   return res.status(200).json({

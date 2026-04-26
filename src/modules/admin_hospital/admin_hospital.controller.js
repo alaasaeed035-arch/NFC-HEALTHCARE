@@ -4,6 +4,7 @@ import { AppError } from "../../utils/appError.js";
 import { roles } from "../../utils/constant/enum.js";
 import { messages } from "../../utils/constant/messages.js";
 import { generateToken } from "../../utils/token.js";
+import { generateOTP, sendOTP } from "../../utils/OTP.js";
 
 // Create Receptionist (by ADMIN_HOSPITAL, ADMIN, or SUPER_ADMIN)
 export const createReceptionist = async (req, res, next) => {
@@ -24,15 +25,15 @@ export const createReceptionist = async (req, res, next) => {
   // hash password
   const hashedPassword = bcrypt.hashSync(password, 8);
 
-  // create receptionist
+  // create receptionist (unverified until OTP confirmed)
   const receptionist = new User({
     fullName,
     email,
     phoneNumber,
     password: hashedPassword,
     role: roles.RECEPTIONIST,
-    hospitalId: adminHospital.hospitalId, // same hospital
-    isVerified: true,
+    hospitalId: adminHospital.hospitalId,
+    isVerified: false,
   });
 
   const created = await receptionist.save();
@@ -40,8 +41,19 @@ export const createReceptionist = async (req, res, next) => {
     return next(new AppError(messages.user.failToCreate, 500));
   }
 
-  // hide password
+  // generate OTP and persist it
+  const otp = generateOTP();
+  created.otp = otp;
+  created.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+  await created.save();
+
+  // send OTP email (fire-and-forget)
+  sendOTP(email, otp).catch(err => console.error('OTP email failed:', err));
+
+  // scrub sensitive fields from response
   created.password = undefined;
+  created.otp = undefined;
+  created.otpExpires = undefined;
 
   return res.status(201).json({
     message: messages.user.created,
@@ -166,7 +178,11 @@ export const deleteReceptionist = async (req, res, next) => {
   }
 
   //  Ensure receptionist belongs to the same hospital
-  if (receptionist.hospitalId.toString() !== adminHospital.hospitalId.toString()) {
+  if (
+    !receptionist.hospitalId ||
+    !adminHospital.hospitalId ||
+    receptionist.hospitalId.toString() !== adminHospital.hospitalId.toString()
+  ) {
     return next(new AppError(messages.user.cannotDeleteOtherHospitalAdmins, 403));
   }
 
@@ -209,6 +225,96 @@ export const getHospitalDoctors = async (req, res, next) => {
     data: doctors,
   });
 };
+
+// Delete Doctor (ADMIN_HOSPITAL only — same hospital)
+export const deleteDoctor = async (req, res, next) => {
+  const { doctorId } = req.params;
+  const adminHospital = req.authUser;
+
+  const doctor = await Doctor.findById(doctorId);
+  if (!doctor) {
+    return next(new AppError(messages.doctor.notExist, 404));
+  }
+
+  if (!doctor.hospitalId || doctor.hospitalId.toString() !== adminHospital.hospitalId.toString()) {
+    return next(new AppError(messages.user.unauthorized, 403));
+  }
+
+  await doctor.deleteOne();
+
+  return res.status(200).json({
+    message: messages.doctor.deleted,
+    success: true,
+  });
+};
+
+// Verify Receptionist OTP (ADMIN_HOSPITAL only)
+export const verifyReceptionistOtp = async (req, res, next) => {
+  const { receptionistId, otp } = req.body;
+  const adminHospital = req.authUser;
+
+  const receptionist = await User.findOne({
+    _id: receptionistId,
+    role: roles.RECEPTIONIST,
+    hospitalId: adminHospital.hospitalId,
+  });
+
+  if (!receptionist) {
+    return next(new AppError(messages.user.notExist, 404));
+  }
+
+  if (receptionist.isVerified) {
+    return next(new AppError(messages.user.alreadyVerified, 400));
+  }
+
+  if (String(receptionist.otp) !== String(otp) || Date.now() > receptionist.otpExpires) {
+    return next(new AppError(messages.user.invalidOTP, 400));
+  }
+
+  receptionist.isVerified = true;
+  receptionist.otp = undefined;
+  receptionist.otpExpires = undefined;
+  await receptionist.save();
+
+  return res.status(200).json({
+    message: messages.user.verified,
+    success: true,
+  });
+};
+
+
+// Resend OTP to Receptionist (ADMIN_HOSPITAL only)
+export const resendReceptionistOtp = async (req, res, next) => {
+  const { receptionistId } = req.body;
+  const adminHospital = req.authUser;
+
+  const receptionist = await User.findOne({
+    _id: receptionistId,
+    role: roles.RECEPTIONIST,
+    hospitalId: adminHospital.hospitalId,
+  });
+
+  if (!receptionist) {
+    return next(new AppError(messages.user.notExist, 404));
+  }
+
+  if (receptionist.isVerified) {
+    return next(new AppError(messages.user.alreadyVerified, 400));
+  }
+
+  const otp = generateOTP();
+  receptionist.otp = otp;
+  receptionist.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+  await receptionist.save();
+
+  sendOTP(receptionist.email, otp).catch(err => console.error('OTP resend failed:', err));
+
+  return res.status(200).json({
+    message: messages.user.otpSent,
+    success: true,
+  });
+};
+
 
 // Get Admin Hospital Profile
 export const getAdminHospitalProfile = async (req, res, next) => {
