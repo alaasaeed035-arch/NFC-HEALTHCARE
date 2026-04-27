@@ -2,7 +2,7 @@ import { Router } from "express";
 import { isValid } from "../../middleware/vaildation.js";
 import { assignPatientToDoctorSchema, getPatientsOfDoctorSchema } from "./receptionist.validation.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { assignPatientToDoctor, getDoctorPatients, getMyPatients, dismissPatient } from "./receptionist.controller.js";
+import { assignPatientToDoctor, getDoctorPatients, getMyPatients, dismissPatient, assignCardToPatient } from "./receptionist.controller.js";
 import { isAuthenticated } from "../../middleware/authentication.js";
 import { isAuthorized } from "../../middleware/autheraization.js";
 import { roles } from "../../utils/constant/enum.js";
@@ -40,5 +40,11 @@ receptionistRouter.delete("/dismiss-patient",
     asyncHandler(dismissPatient)
 )
 
+// assign NFC card UID to a patient
+receptionistRouter.put("/assign-card",
+    isAuthenticated(),
+    isAuthorized([ roles.RECEPTIONIST, roles.ADMIN_HOSPITAL, roles.ADMIN, roles.SUPER_ADMIN ]),
+    asyncHandler(assignCardToPatient)
+)
 
 export default receptionistRouter;

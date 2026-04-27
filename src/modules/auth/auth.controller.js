@@ -558,3 +558,19 @@ export const getPatientByNationalId = async (req, res, next) => {
     data: patient,
   });
 };
+
+// Get patient by NFC card UID (cardId field)
+export const getPatientByCardId = async (req, res, next) => {
+  const { cardId } = req.params;
+
+  const patient = await Patient.findOne({ cardId });
+  if (!patient) {
+    return next(new AppError(messages.patient.notExist, 404));
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: messages.patient.fetchedSuccessfully,
+    data: patient,
+  });
+};

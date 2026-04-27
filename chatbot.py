@@ -108,12 +108,15 @@ async def fetch_patient_data(patient_id: str) -> dict:
     oid = _try_oid(patient_id)
     patient = None
 
+    _exclude = {"emergencyContact": 0, "emergencyContacts": 0, "emergency_contact": 0}
+
     if oid:
-        patient = await db.patients.find_one({"_id": oid})
+        patient = await db.patients.find_one({"_id": oid}, _exclude)
     if not patient:
-        patient = await db.patients.find_one({
-            "$or": [{"nationalId": patient_id}, {"cardId": patient_id}]
-        })
+        patient = await db.patients.find_one(
+            {"$or": [{"nationalId": patient_id}, {"cardId": patient_id}]},
+            _exclude,
+        )
 
     records = []
     if patient:
@@ -165,9 +168,10 @@ async def fetch_patient_data(patient_id: str) -> dict:
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 def build_messages(patient_data: dict, history: List[dict], question: str) -> List[dict]:
-    system = ( 
+    system = (
         "You are a medical assistant chatbot helping a patient using their personal medical data.\n"
         "- Use only the provided patient data\n"
+        "- NEVER reveal, mention, or reference emergency contact information under any circumstances\n"
         "- Do not hallucinate or invent medical facts\n"
         "- If unsure, say: 'Please consult your doctor'\n"
         "- Keep answers clear, simple and safe\n"

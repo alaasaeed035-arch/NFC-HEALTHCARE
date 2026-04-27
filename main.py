@@ -141,15 +141,43 @@ class DrugInfoService:
         return None
     
     @classmethod
+    def get_rxnorm_interactions(cls, rxcui: str) -> Optional[list]:
+        """Get known drug interactions for a rxcui from RxNorm"""
+        try:
+            url = f"{cls.RXNORM_BASE_URL}/interaction/interaction.json?rxcui={rxcui}"
+            response = requests.get(url, timeout=10)
+            if response.status_code != 200:
+                return None
+            data = response.json()
+            interactions = []
+            for group in data.get("interactionTypeGroup", []):
+                source = group.get("sourceName", "")
+                for itype in group.get("interactionType", []):
+                    for pair in itype.get("interactionPair", []):
+                        concepts = pair.get("interactionConcept", [])
+                        names = [c.get("minConceptItem", {}).get("name", "") for c in concepts]
+                        interactions.append({
+                            "drugs": names,
+                            "severity": pair.get("severity", "unknown"),
+                            "description": pair.get("description", ""),
+                            "source": source,
+                        })
+            return interactions if interactions else None
+        except Exception as e:
+            print(f"RxNorm Interaction Error: {e}")
+        return None
+
+    @classmethod
     def get_complete_drug_info(cls, drug_name: str) -> Dict:
         """Get comprehensive drug information from all sources"""
         fda_info = cls.get_fda_drug_info(drug_name)
-        rxnorm_info = None  # Can add this back if needed
-        
+        rxnorm_info = cls.get_rxcui(drug_name)
+        rxnorm_interactions = cls.get_rxnorm_interactions(rxnorm_info) if rxnorm_info else None
+
         return {
             "drug_name": drug_name,
             "fda_information": fda_info,
-            "rxnorm_information": rxnorm_info,
+            "rxnorm_information": {"rxcui": rxnorm_info, "interactions": rxnorm_interactions} if rxnorm_info else None,
             "has_data": bool(fda_info or rxnorm_info)
         }
 
@@ -270,29 +298,36 @@ async def check_treatment_conflict(request: ConflictCheckRequest):
         
         new_treatment_text = f"{request.new_treatment.name} ({request.new_treatment.dosage}, {request.new_treatment.frequency})"
         
-        # Add FDA data to prompt for new treatment
-        additional_context = "\n\n=== DRUG INFORMATION FROM FDA ===\n"
+        # Add FDA + RxNorm data to prompt
+        additional_context = "\n\n=== DRUG INFORMATION FROM FDA & RXNORM ===\n"
         has_fda_context = False
-        if new_drug_info['has_data'] and new_drug_info['fda_information']:
-            fda = new_drug_info['fda_information']
-            additional_context += f"\nNew Treatment ({request.new_treatment.name}):\n"
-            if fda.get('warnings'):
-                additional_context += f"- Warnings: {fda['warnings'][:300]}...\n"
-                has_fda_context = True
-            if fda.get('drug_interactions'):
-                additional_context += f"- Known Interactions: {fda['drug_interactions'][:300]}...\n"
+
+        def _append_drug_context(label: str, info: dict) -> bool:
+            nonlocal additional_context
+            added = False
+            fda = info.get("fda_information") or {}
+            if fda.get("warnings"):
+                additional_context += f"\n{label}:\n- Warnings: {fda['warnings'][:300]}...\n"
+                added = True
+            if fda.get("drug_interactions"):
+                additional_context += f"- FDA Interactions: {fda['drug_interactions'][:300]}...\n"
+                added = True
+            rxn = (info.get("rxnorm_information") or {}).get("interactions") or []
+            if rxn:
+                additional_context += f"- RxNorm Known Interactions:\n"
+                for ix in rxn[:5]:
+                    drugs_str = " + ".join(filter(None, ix["drugs"]))
+                    additional_context += f"  [{ix['severity'].upper()}] {drugs_str}: {ix['description']}\n"
+                added = True
+            return added
+
+        if new_drug_info['has_data']:
+            if _append_drug_context(f"New Treatment ({request.new_treatment.name})", new_drug_info):
                 has_fda_context = True
 
-        # Inject FDA data for existing patient medications (Bug 4 fix)
         for info in current_drugs_info:
-            if info['has_data'] and info['fda_information']:
-                fda = info['fda_information']
-                additional_context += f"\nExisting Drug ({info['drug_name']}):\n"
-                if fda.get('warnings'):
-                    additional_context += f"- Warnings: {fda['warnings'][:300]}...\n"
-                    has_fda_context = True
-                if fda.get('drug_interactions'):
-                    additional_context += f"- Known Interactions: {fda['drug_interactions'][:300]}...\n"
+            if info['has_data']:
+                if _append_drug_context(f"Existing Drug ({info['drug_name']})", info):
                     has_fda_context = True
 
         prompt = f"""Analyze potential drug interactions and treatment conflicts.

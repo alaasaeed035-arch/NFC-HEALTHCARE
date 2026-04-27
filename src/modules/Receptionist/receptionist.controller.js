@@ -60,6 +60,26 @@ export const getMyPatients = async (req, res, next) => {
 };
 
 
+// Assign (or reassign) an NFC card to a patient
+export const assignCardToPatient = async (req, res, next) => {
+  const { patientId, cardId } = req.body;
+
+  // Make sure the card isn't already linked to a different patient
+  const taken = await Patient.findOne({ cardId });
+  if (taken && taken._id.toString() !== patientId) {
+    return next(new AppError('This card is already assigned to another patient', 409));
+  }
+
+  const patient = await Patient.findByIdAndUpdate(patientId, { cardId }, { new: true });
+  if (!patient) return next(new AppError(messages.patient.notExist, 404));
+
+  return res.status(200).json({
+    success: true,
+    message: 'Card assigned successfully',
+    data: patient,
+  });
+};
+
 // Dismiss patient from doctor's forwarded queue (after consultation)
 export const dismissPatient = async (req, res, next) => {
   const doctorId = req.authUser._id;

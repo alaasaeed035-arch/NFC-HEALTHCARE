@@ -2,7 +2,7 @@ import { Router } from "express";
 import { isValid } from "../../middleware/vaildation.js";
 import { forgetDoctorPasswordSchema, loginPatientSchema, loginSchema, resetDoctorPasswordSchema, selfSignupPatientSchema, signupDoctorSchema, signupPatientSchema, updateDoctorProfileSchema, updatePatientProfileSchema } from "./auth.validation.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { forgetPasswordDoctor, getPatientProfile, getProfileDoctor, login, loginPatient, signupDoctor, signupPatient, updateDoctorProfile, updatePatientProfile, verifyDoctorAccount, verifyOtpAndResetPasswordDoctor, getAllPatients, getAllDoctors, getAllReceptionists, getMyProfile, getPatientByNationalId } from "./auth.controller.js";
+import { forgetPasswordDoctor, getPatientProfile, getProfileDoctor, login, loginPatient, signupDoctor, signupPatient, updateDoctorProfile, updatePatientProfile, verifyDoctorAccount, verifyOtpAndResetPasswordDoctor, getAllPatients, getAllDoctors, getAllReceptionists, getMyProfile, getPatientByNationalId, getPatientByCardId } from "./auth.controller.js";
 import { isAuthenticated } from "../../middleware/authentication.js";
 import { isAuthorized } from "../../middleware/autheraization.js";
 import { roles } from "../../utils/constant/enum.js";
@@ -110,6 +110,12 @@ authRouter.get('/me',
 authRouter.get('/patient/by-national-id/:nationalId',
     isAuthenticated(),
     asyncHandler(getPatientByNationalId)
+);
+
+// get patient by NFC card UID
+authRouter.get('/patient/by-card-id/:cardId',
+    isAuthenticated(),
+    asyncHandler(getPatientByCardId)
 );
 
 export default authRouter;

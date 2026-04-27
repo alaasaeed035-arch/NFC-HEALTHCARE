@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, UserPlus, Wifi, Stethoscope, Users, ClipboardList, Eye, MapPin, Phone, CreditCard, Contact } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
@@ -54,6 +54,9 @@ export default function ReceptionistDashboard() {
     ecName: '', ecPhone: '', ecRelation: '',
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [assignCardPatient, setAssignCardPatient] = useState<Patient | null>(null)
+  const [tapCardActiveFor, setTapCardActiveFor] = useState<'register' | 'assign' | null>(null)
+  const tapIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     fetchAll()
@@ -149,6 +152,32 @@ export default function ReceptionistDashboard() {
   const pf = (field: keyof PatientFormData, value: string) => {
     setPatientForm(prev => ({ ...prev, [field]: value }))
     setFormErrors(prev => ({ ...prev, [field]: '' }))
+  }
+
+  const stopTapCard = () => {
+    if (tapIntervalRef.current) {
+      clearInterval(tapIntervalRef.current)
+      tapIntervalRef.current = null
+    }
+    setTapCardActiveFor(null)
+  }
+
+  const startTapCard = (onUid: (uid: string) => void) => {
+    let lastUid = ''
+    let attempts = 0
+    tapIntervalRef.current = setInterval(async () => {
+      attempts++
+      try {
+        const r = await fetch('http://localhost:8002/nfc/card')
+        const d: { uid: string | null; present: boolean } = await r.json()
+        if (d.present && d.uid && d.uid !== lastUid) {
+          lastUid = d.uid
+          stopTapCard()
+          onUid(d.uid)
+        }
+      } catch {}
+      if (attempts >= 20) stopTapCard() // give up after 10 s
+    }, 500)
   }
 
   const filteredPatients = patients.filter(p => {
@@ -310,15 +339,29 @@ export default function ReceptionistDashboard() {
                         <TableCell className="text-gray-500 text-xs max-w-[140px] truncate">{p.address ?? <span className="text-gray-400">—</span>}</TableCell>
                         <TableCell className="text-gray-500 text-xs font-mono">{p.cardId ?? <span className="text-gray-400">—</span>}</TableCell>
                         <TableCell>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 text-gray-400 hover:text-[#0055BB]"
-                            aria-label="View patient details"
-                            onClick={() => setViewPatient(p)}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
+                          <div className="flex gap-1">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-gray-400 hover:text-[#0055BB]"
+                              aria-label="View patient details"
+                              onClick={() => setViewPatient(p)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            {!p.cardId && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-gray-400 hover:text-green-600"
+                                aria-label="Assign NFC card"
+                                title="Assign NFC card"
+                                onClick={() => setAssignCardPatient(p)}
+                              >
+                                <CreditCard className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -461,6 +504,69 @@ export default function ReceptionistDashboard() {
         </DialogContent>
       </Dialog>
 
+      {/* Assign NFC Card Dialog */}
+      <Dialog
+        open={!!assignCardPatient}
+        onOpenChange={open => { if (!open) { stopTapCard(); setAssignCardPatient(null) } }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Assign NFC Card</DialogTitle>
+            <DialogDescription>
+              {assignCardPatient
+                ? `Link a card to ${assignCardPatient.firstName} ${assignCardPatient.lastName}`
+                : 'Link an NFC card to this patient'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4 py-6">
+            <div className="relative flex items-center justify-center">
+              {tapCardActiveFor === 'assign' && (
+                <>
+                  <span className="absolute inline-flex h-24 w-24 rounded-full bg-blue-100 opacity-75 animate-ping" />
+                  <span className="absolute inline-flex h-16 w-16 rounded-full bg-blue-200 opacity-60 animate-ping [animation-delay:0.3s]" />
+                </>
+              )}
+              <div className={`relative inline-flex h-14 w-14 items-center justify-center rounded-full ${tapCardActiveFor === 'assign' ? 'bg-[#0055BB]' : 'bg-gray-100'}`}>
+                {tapCardActiveFor === 'assign'
+                  ? <Spinner size="sm" className="text-white" />
+                  : <CreditCard className="h-7 w-7 text-gray-400" />}
+              </div>
+            </div>
+            {tapCardActiveFor === 'assign'
+              ? <p className="text-sm text-gray-600 animate-pulse">Tap card to reader…</p>
+              : <p className="text-sm text-gray-500">Click "Start Scan" then tap the NFC card on the reader</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { stopTapCard(); setAssignCardPatient(null) }}>
+              Cancel
+            </Button>
+            {tapCardActiveFor !== 'assign' && (
+              <Button onClick={() => {
+                setTapCardActiveFor('assign')
+                startTapCard(async uid => {
+                  try {
+                    await client.put('/receptionist/assign-card', {
+                      patientId: assignCardPatient!._id,
+                      cardId: uid,
+                    })
+                    toast({ title: 'Card assigned successfully', variant: 'success' })
+                    setPatients(prev =>
+                      prev.map(p => p._id === assignCardPatient!._id ? { ...p, cardId: uid } : p)
+                    )
+                    setAssignCardPatient(null)
+                  } catch (err: unknown) {
+                    const e = err as { response?: { data?: { message?: string } } }
+                    toast({ title: e?.response?.data?.message ?? 'Failed to assign card', variant: 'error' })
+                  }
+                })
+              }}>
+                Start Scan
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Register Patient Dialog */}
       <Dialog
         open={registerPatientOpen}
@@ -494,7 +600,29 @@ export default function ReceptionistDashboard() {
               <Input value={patientForm.nationalId} onChange={e => pf('nationalId', e.target.value)} placeholder="National ID" />
             </FormField>
             <FormField label="NFC Card ID" error="">
-              <Input value={patientForm.cardId} onChange={e => pf('cardId', e.target.value)} placeholder="Card ID (optional)" />
+              <div className="flex gap-2">
+                <Input
+                  value={patientForm.cardId}
+                  onChange={e => pf('cardId', e.target.value)}
+                  placeholder="Card ID (optional)"
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1.5"
+                  disabled={tapCardActiveFor === 'register'}
+                  onClick={() => {
+                    setTapCardActiveFor('register')
+                    startTapCard(uid => pf('cardId', uid))
+                  }}
+                >
+                  {tapCardActiveFor === 'register'
+                    ? <><Spinner size="sm" /> Tap…</>
+                    : <><Wifi className="h-3.5 w-3.5 rotate-90" /> Tap</>}
+                </Button>
+              </div>
             </FormField>
             <div className="grid grid-cols-2 gap-3">
               <FormField label="Gender *" error={formErrors.gender}>

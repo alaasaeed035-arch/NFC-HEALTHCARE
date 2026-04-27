@@ -2,3 +2,4 @@
 /config
 .vercel
 .env
+.env*.local
