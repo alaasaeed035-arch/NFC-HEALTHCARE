@@ -226,6 +226,36 @@ export const getHospitalDoctors = async (req, res, next) => {
   });
 };
 
+// Set working hours for a doctor (ADMIN_HOSPITAL only — same hospital)
+export const setDoctorWorkingHours = async (req, res, next) => {
+  const { doctorId } = req.params;
+  const { workingHours } = req.body; // [{ day, start, end }]
+  const adminHospital = req.authUser;
+
+  if (!adminHospital.hospitalId) {
+    return next(new AppError(messages.user.unauthorized, 403));
+  }
+
+  const doctor = await Doctor.findById(doctorId);
+  if (!doctor) return next(new AppError(messages.doctor.notExist, 404));
+
+  if (!doctor.hospitalId || doctor.hospitalId.toString() !== adminHospital.hospitalId.toString()) {
+    return next(new AppError(messages.user.unauthorized, 403));
+  }
+
+  const updated = await Doctor.findByIdAndUpdate(
+    doctorId,
+    { workingHours: workingHours ?? [] },
+    { new: true, runValidators: false }
+  );
+
+  return res.status(200).json({
+    success: true,
+    message: 'Working hours updated successfully',
+    data: { workingHours: updated.workingHours },
+  });
+};
+
 // Delete Doctor (ADMIN_HOSPITAL only — same hospital)
 export const deleteDoctor = async (req, res, next) => {
   const { doctorId } = req.params;

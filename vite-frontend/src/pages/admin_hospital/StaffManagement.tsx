@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { UserPlus, Trash2, Users, Stethoscope, LayoutDashboard, UserCog, ShieldAlert, Eye, MapPin, Phone, CreditCard, Contact, Mail, ShieldCheck } from 'lucide-react'
+import { UserPlus, Trash2, Users, Stethoscope, LayoutDashboard, UserCog, ShieldAlert, Eye, MapPin, Phone, CreditCard, Contact, Mail, ShieldCheck, Clock } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -13,7 +13,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription
 } from '@/components/ui/Dialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import type { Receptionist, Doctor, Patient } from '@/types'
+import type { Receptionist, Doctor, Patient, WorkingHours, WeekDay } from '@/types'
 import client from '@/api/client'
 import { useToast } from '@/components/ui/Toast'
 
@@ -46,6 +46,43 @@ export default function StaffManagement() {
   const [verifyingOtp, setVerifyingOtp] = useState(false)
   const [resendingOtp, setResendingOtp] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  // Working hours dialog
+  const DAYS: WeekDay[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  type HoursEntry = { day: WeekDay; enabled: boolean; start: string; end: string }
+  const [hoursDoctor, setHoursDoctor] = useState<Doctor | null>(null)
+  const [hoursForm, setHoursForm] = useState<HoursEntry[]>([])
+  const [savingHours, setSavingHours] = useState(false)
+
+  const openHoursDialog = (d: Doctor) => {
+    setHoursDoctor(d)
+    setHoursForm(DAYS.map(day => {
+      const existing = d.workingHours?.find(h => h.day === day)
+      return { day, enabled: !!existing, start: existing?.start ?? '08:00', end: existing?.end ?? '16:00' }
+    }))
+  }
+
+  const setHoursField = (day: WeekDay, field: 'enabled' | 'start' | 'end', value: string | boolean) =>
+    setHoursForm(prev => prev.map(h => h.day === day ? { ...h, [field]: value } : h))
+
+  const handleSaveHours = async () => {
+    if (!hoursDoctor) return
+    setSavingHours(true)
+    try {
+      const payload = hoursForm.filter(h => h.enabled).map(({ day, start, end }) => ({ day, start, end }))
+      const res = await client.put(`/admin-hospital/doctor/${hoursDoctor._id}/working-hours`, { workingHours: payload })
+      const updated: WorkingHours[] = res.data?.data?.workingHours ?? payload
+      setDoctors(prev => prev.map(d => d._id === hoursDoctor._id ? { ...d, workingHours: updated } : d))
+      toast({ title: 'Working hours saved', variant: 'success' })
+      setHoursDoctor(null)
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      toast({ title: e?.response?.data?.message ?? 'Failed to save working hours', variant: 'error' })
+    } finally {
+      setSavingHours(false)
+    }
+  }
+
   const [form, setForm] = useState<ReceptionistForm>({
     firstName: '', lastName: '', email: '', password: '', phoneNumber: '',
   })
@@ -374,7 +411,7 @@ export default function StaffManagement() {
           </Card>
         </TabsContent>
 
-        {/* Doctors Tab — delete only, no create */}
+        {/* Doctors Tab — grouped by department */}
         <TabsContent value="doctors">
           <Card>
             <CardHeader>
@@ -389,52 +426,80 @@ export default function StaffManagement() {
             <CardContent>
               {loading ? (
                 <div className="flex justify-center py-8"><Spinner /></div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Specialization</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {doctors.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center text-gray-400 py-8">
-                          No doctors found
-                        </TableCell>
-                      </TableRow>
-                    ) : doctors.map(d => (
-                      <TableRow key={d._id}>
-                        <TableCell>
-                          <div className="font-medium">Dr. {d.firstName} {d.lastName}</div>
-                        </TableCell>
-                        <TableCell className="text-gray-500">{d.email}</TableCell>
-                        <TableCell>{d.specialization ?? '—'}</TableCell>
-                        <TableCell>
-                          <Badge variant={d.isVerified ? 'success' : 'secondary'}>
-                            {d.isVerified ? 'Verified' : 'Pending'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="text-red-400 hover:text-red-600 h-8 w-8"
-                            aria-label="Delete doctor"
-                            onClick={() => setDeleteDoctorId(d._id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
+              ) : doctors.length === 0 ? (
+                <p className="text-center text-gray-400 py-8">No doctors found</p>
+              ) : (() => {
+                const grouped: Record<string, Doctor[]> = {}
+                doctors.forEach(d => {
+                  const dept = d.specialization ?? 'General'
+                  if (!grouped[dept]) grouped[dept] = []
+                  grouped[dept].push(d)
+                })
+                return (
+                  <div className="space-y-6">
+                    {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([dept, deptDoctors]) => (
+                      <div key={dept}>
+                        <div className="flex items-center gap-2 mb-3">
+                          <Stethoscope className="h-4 w-4 text-[#0055BB]" />
+                          <h3 className="text-sm font-semibold text-gray-700">{dept}</h3>
+                          <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">
+                            {deptDoctors.length} doctor{deptDoctors.length !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          {deptDoctors.map(d => (
+                            <div key={d._id} className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-gray-900 truncate">
+                                    Dr. {d.firstName} {d.lastName}
+                                  </p>
+                                  <p className="text-xs text-gray-400 truncate">{d.email}</p>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <Badge variant={d.isVerified ? 'success' : 'secondary'} className="text-xs">
+                                    {d.isVerified ? 'Verified' : 'Pending'}
+                                  </Badge>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="text-blue-400 hover:text-blue-600 h-7 w-7"
+                                    aria-label="Set working hours"
+                                    title="Set working hours"
+                                    onClick={() => openHoursDialog(d)}
+                                  >
+                                    <Clock className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="text-red-400 hover:text-red-600 h-7 w-7"
+                                    aria-label="Delete doctor"
+                                    onClick={() => setDeleteDoctorId(d._id)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </div>
+                              {d.workingHours?.length ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {d.workingHours.map(h => (
+                                    <span key={h.day} className="text-xs bg-blue-50 text-blue-700 rounded px-1.5 py-0.5">
+                                      {h.day.slice(0, 3)} {h.start}–{h.end}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-gray-400 italic">No working hours set</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
-              )}
+                  </div>
+                )
+              })()}
             </CardContent>
           </Card>
         </TabsContent>
@@ -603,6 +668,58 @@ export default function StaffManagement() {
         onConfirm={handleDeleteDoctor}
         loading={deletingDoctor}
       />
+
+      {/* Working Hours Dialog */}
+      <Dialog open={!!hoursDoctor} onOpenChange={open => { if (!open) setHoursDoctor(null) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-[#0055BB]" />
+              Working Hours — Dr. {hoursDoctor?.firstName} {hoursDoctor?.lastName}
+            </DialogTitle>
+            <DialogDescription>Check the days this doctor works and set their shift times</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+            {hoursForm.map(entry => (
+              <div key={entry.day} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${entry.enabled ? 'bg-blue-50 border border-blue-100' : 'bg-gray-50 border border-gray-100'}`}>
+                <input
+                  type="checkbox"
+                  id={`day-${entry.day}`}
+                  checked={entry.enabled}
+                  onChange={e => setHoursField(entry.day, 'enabled', e.target.checked)}
+                  className="h-4 w-4 rounded accent-[#0055BB] cursor-pointer"
+                />
+                <label htmlFor={`day-${entry.day}`} className="w-24 text-sm font-medium text-gray-700 cursor-pointer select-none">
+                  {entry.day}
+                </label>
+                <div className="flex items-center gap-2 flex-1">
+                  <input
+                    type="time"
+                    value={entry.start}
+                    disabled={!entry.enabled}
+                    onChange={e => setHoursField(entry.day, 'start', e.target.value)}
+                    className="flex-1 rounded-md border border-gray-300 px-2 py-1 text-sm disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-[#0055BB]"
+                  />
+                  <span className="text-xs text-gray-400">to</span>
+                  <input
+                    type="time"
+                    value={entry.end}
+                    disabled={!entry.enabled}
+                    onChange={e => setHoursField(entry.day, 'end', e.target.value)}
+                    className="flex-1 rounded-md border border-gray-300 px-2 py-1 text-sm disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-[#0055BB]"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHoursDoctor(null)}>Cancel</Button>
+            <Button onClick={handleSaveHours} disabled={savingHours}>
+              {savingHours ? <Spinner size="sm" /> : 'Save Hours'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* OTP Verification Dialog */}
       <Dialog

@@ -31,8 +31,7 @@ const NAV_ITEMS: Record<Role, NavItem[]> = {
   ],
   doctor: [
     { label: 'Dashboard', to: '/doctor/dashboard', icon: LayoutDashboard },
-    { label: 'My Patients', to: '/doctor/dashboard#patients', icon: Users },
-    { label: 'DDI Reports', to: '/doctor/dashboard#ddi', icon: AlertTriangle },
+    { label: 'DDI Reports', to: '/doctor/dashboard#ddi-log', icon: AlertTriangle },
   ],
   receptionist: [
     { label: 'Queue Manager', to: '/receptionist/dashboard', icon: ClipboardList },
@@ -120,7 +119,10 @@ export function Sidebar({ onClose }: SidebarProps) {
             <NavLink
               key={item.to}
               to={item.to}
-              onClick={onClose}
+              onClick={() => {
+                document.getElementById('main-content')?.scrollTo({ top: 0, behavior: 'smooth' })
+                onClose?.()
+              }}
               className={() => {
                 const isActive = location.pathname === item.to && !location.hash
                 return `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${isActive
@@ -138,7 +140,10 @@ export function Sidebar({ onClose }: SidebarProps) {
 
       {/* User section */}
       <div className="border-t border-white/10 p-4 space-y-3">
-        <div className="flex items-center gap-3">
+        <button
+          onClick={() => { navigate('/profile'); onClose?.() }}
+          className="w-full flex items-center gap-3 rounded-lg p-1 hover:bg-white/10 transition-colors text-left"
+        >
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-[#0055BB] text-white text-sm font-bold">
             {displayName.charAt(0).toUpperCase()}
           </div>
@@ -148,7 +153,7 @@ export function Sidebar({ onClose }: SidebarProps) {
               {ROLE_LABELS[role]}
             </Badge>
           </div>
-        </div>
+        </button>
         <button
           onClick={logout}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[#94A3B8] hover:bg-white/10 hover:text-white transition-colors"

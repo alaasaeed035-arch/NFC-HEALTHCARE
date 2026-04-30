@@ -5,7 +5,7 @@ import { roles } from "../../utils/constant/enum.js";
 import { isValid } from "../../middleware/vaildation.js";
 import { deleteDoctorSchema, deleteReceptionistSchema, receptionistHospitalSchema, updateReceptionistSchema, verifyReceptionistOtpSchema, resendReceptionistOtpSchema } from "./admin_hospital.validation.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { createReceptionist, deleteDoctor, deleteReceptionist, getAdminHospitalProfile, getAllReceptionists, updateReceptionist, getHospitalDoctors, getHospitalPatients, verifyReceptionistOtp, resendReceptionistOtp } from "./admin_hospital.controller.js";
+import { createReceptionist, deleteDoctor, deleteReceptionist, getAdminHospitalProfile, getAllReceptionists, updateReceptionist, getHospitalDoctors, getHospitalPatients, verifyReceptionistOtp, resendReceptionistOtp, setDoctorWorkingHours } from "./admin_hospital.controller.js";
 
 
 const adminHospitalRouter = Router();
@@ -79,6 +79,13 @@ adminHospitalRouter.post('/resend-receptionist-otp',
     isAuthorized([roles.ADMIN_HOSPITAL]),
     isValid(resendReceptionistOtpSchema),
     asyncHandler(resendReceptionistOtp)
+)
+
+// set working hours for a doctor
+adminHospitalRouter.put('/doctor/:doctorId/working-hours',
+    isAuthenticated(),
+    isAuthorized([roles.ADMIN_HOSPITAL]),
+    asyncHandler(setDoctorWorkingHours)
 )
 
 // get profile admin hospital route

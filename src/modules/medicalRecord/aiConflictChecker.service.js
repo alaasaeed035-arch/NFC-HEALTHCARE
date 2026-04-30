@@ -57,7 +57,7 @@ const formatNewTreatmentForAI = (medication) => {
     return {
         name: medication.name || '',
         dosage: medication.dosage || 'Not specified',
-        frequency: medication.duration || 'Not specified',
+        frequency: medication.frequency || medication.duration || 'Not specified',
         notes: medication.notes || '',
     };
 };

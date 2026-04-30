@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { ChevronDown, ChevronRight, Filter } from 'lucide-react'
 import { SeverityBadge } from './SeverityBadge'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table'
@@ -12,16 +12,31 @@ interface DDITableProps {
   patientIds?: string[]
   reports?: DDIReport[]
   hideAutoFetch?: boolean
+  refreshKey?: number
 }
 
 const ALL_SEVERITIES: DDISeverity[] = ['critical', 'high', 'moderate', 'low', 'none', 'unknown']
 
-export function DDITable({ patientId, patientIds, reports: propReports, hideAutoFetch }: DDITableProps) {
+export function DDITable({ patientId, patientIds, reports: propReports, hideAutoFetch, refreshKey }: DDITableProps) {
   const [reports, setReports] = useState<DDIReport[]>(propReports ?? [])
   const [loading, setLoading] = useState(!propReports && !hideAutoFetch)
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [severityFilter, setSeverityFilter] = useState<DDISeverity | 'all'>('all')
+  const prevRefreshKey = useRef(refreshKey ?? 0)
+  const scrollToId = useRef<string | null>(null)
+
+  // After expanded state changes, scroll to the auto-expanded row detail
+  useEffect(() => {
+    if (!scrollToId.current) return
+    const id = scrollToId.current
+    scrollToId.current = null
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.getElementById(`ddi-detail-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    })
+  }, [expanded])
 
   useEffect(() => {
     if (propReports) {
@@ -29,16 +44,23 @@ export function DDITable({ patientId, patientIds, reports: propReports, hideAuto
       return
     }
     if (hideAutoFetch) return
+    const isNewCheck = refreshKey !== undefined && refreshKey !== prevRefreshKey.current
+    prevRefreshKey.current = refreshKey ?? 0
     setLoading(true)
     client
       .get('/api/ddi-reports')
       .then(res => {
         const d = res.data
-        setReports(Array.isArray(d) ? d : d.data ?? [])
+        const fetched: DDIReport[] = Array.isArray(d) ? d : d.data ?? []
+        setReports(fetched)
+        if (isNewCheck && fetched.length > 0) {
+          scrollToId.current = fetched[0]._id
+          setExpanded(new Set([fetched[0]._id]))
+        }
       })
       .catch(() => setError('Failed to load DDI reports'))
       .finally(() => setLoading(false))
-  }, [propReports, hideAutoFetch])
+  }, [propReports, hideAutoFetch, refreshKey])
 
   const filtered = reports.filter(r => {
     if (patientId && r.patient_id !== patientId) return false
@@ -148,7 +170,7 @@ export function DDITable({ patientId, patientIds, reports: propReports, hideAuto
                     </TableCell>
                   </TableRow>
                   {expanded.has(r._id) && (
-                    <TableRow>
+                    <TableRow id={`ddi-detail-${r._id}`}>
                       <TableCell colSpan={7}>
                         <div className="bg-gray-50 rounded-lg p-4 space-y-3">
                           <div>

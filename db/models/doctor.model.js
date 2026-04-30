@@ -56,6 +56,16 @@ const doctorSchema = new Schema(
     otpExpires: String,
     patients: [{ type: Schema.Types.ObjectId, ref: "Patient" }],
 
+    workingHours: [{
+      day: {
+        type: String,
+        enum: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+        required: true,
+      },
+      start: { type: String, required: true }, // "08:00"
+      end:   { type: String, required: true }, // "16:00"
+    }],
+
   },
   { timestamps: true }
 );

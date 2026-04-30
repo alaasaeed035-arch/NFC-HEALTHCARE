@@ -28,6 +28,7 @@ const medicalRecordSchema = new Schema(
       {
         name: { type: String },
         dosage: { type: String },
+        frequency: { type: String },
         duration: { type: String },
       },
     ],

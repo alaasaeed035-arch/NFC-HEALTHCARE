@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import {
   User, Droplets, Calendar, Phone, MapPin, Heart, Pill, Scissors,
-  Building2, AlertTriangle, CreditCard, FileText, Clock,
+  Building2, AlertTriangle, CreditCard, FileText, Clock, Stethoscope,
+  ChevronDown, ChevronUp, Layers,
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
@@ -20,6 +21,12 @@ export default function HealthPassport() {
   const [hospitals, setHospitals] = useState<Hospital[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  // per-hospital expanded staff panel
+  const [expandedHospital, setExpandedHospital] = useState<string | null>(null)
+  const [hospitalDoctors, setHospitalDoctors] = useState<
+    Record<string, { doctors: Doctor[]; loading: boolean; loaded: boolean }>
+  >({})
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -45,6 +52,20 @@ export default function HealthPassport() {
     }
     fetchAll()
   }, [])
+
+  const toggleHospitalStaff = async (hospitalId: string) => {
+    if (expandedHospital === hospitalId) { setExpandedHospital(null); return }
+    setExpandedHospital(hospitalId)
+    if (hospitalDoctors[hospitalId]?.loaded) return
+    setHospitalDoctors(prev => ({ ...prev, [hospitalId]: { doctors: [], loading: true, loaded: false } }))
+    try {
+      const res = await client.get(`/hospital/${hospitalId}`)
+      const doctors: Doctor[] = res.data?.data?.doctors ?? res.data?.doctors ?? []
+      setHospitalDoctors(prev => ({ ...prev, [hospitalId]: { doctors, loading: false, loaded: true } }))
+    } catch {
+      setHospitalDoctors(prev => ({ ...prev, [hospitalId]: { doctors: [], loading: false, loaded: true } }))
+    }
+  }
 
   if (loading) return (
     <div className="flex justify-center items-center h-64">
@@ -301,39 +322,117 @@ export default function HealthPassport() {
           <DDITable patientId={patient._id} />
         </TabsContent>
 
-        {/* Hospitals Near Me */}
+        {/* Hospitals & Staff */}
         <TabsContent value="hospitals">
           {hospitals.length === 0 ? (
             <EmptyState icon={<Building2 className="h-10 w-10 text-gray-300" />} label="No hospitals found" />
           ) : (
-            <div className="grid sm:grid-cols-2 gap-4">
-              {hospitals.map(h => (
-                <Card key={h._id}>
-                  <CardContent className="pt-5">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50">
-                        <Building2 className="h-5 w-5 text-[#0055BB]" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-gray-900">{h.name}</p>
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
-                          <MapPin className="h-3 w-3" />
-                          {h.address}
+            <div className="space-y-4">
+              {hospitals.map(h => {
+                const isExpanded = expandedHospital === h._id
+                const staffState = hospitalDoctors[h._id]
+
+                // group doctors by specialization
+                const grouped: Record<string, Doctor[]> = {}
+                for (const doc of staffState?.doctors ?? []) {
+                  const dept = doc.specialization || 'General'
+                  ;(grouped[dept] ??= []).push(doc)
+                }
+
+                return (
+                  <Card key={h._id} className={isExpanded ? 'border-[#0055BB]/30' : ''}>
+                    <CardContent className="pt-5">
+                      {/* Hospital info row */}
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50">
+                          <Building2 className="h-5 w-5 text-[#0055BB]" />
                         </div>
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
-                          <Phone className="h-3 w-3" />
-                          {h.phoneNumber}
-                        </div>
-                        {h.hotline && (
-                          <div className="text-xs text-red-500 mt-1 font-medium">
-                            Emergency: {h.hotline}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-900 capitalize">{h.name}</p>
+                          <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
+                            <MapPin className="h-3 w-3" />{h.address}
                           </div>
-                        )}
+                          <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
+                            <Phone className="h-3 w-3" />{h.phoneNumber}
+                          </div>
+                          {h.hotline && (
+                            <div className="text-xs text-red-500 mt-1 font-medium">
+                              Emergency: {h.hotline}
+                            </div>
+                          )}
+                          {h.departments && h.departments.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {h.departments.map((d, i) => (
+                                <span key={i} className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 rounded-full px-2 py-0.5 text-xs">
+                                  <Layers className="h-3 w-3" />{d.name}{d.floor ? ` · Floor ${d.floor}` : ''}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => toggleHospitalStaff(h._id)}
+                          className="flex items-center gap-1.5 text-xs font-medium text-[#0055BB] hover:text-[#0044a0] flex-shrink-0 mt-0.5 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors"
+                        >
+                          <Stethoscope className="h-3.5 w-3.5" />
+                          {isExpanded ? 'Hide Staff' : 'View Staff'}
+                          {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        </button>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+
+                      {/* Expandable staff panel */}
+                      {isExpanded && (
+                        <div className="mt-4 border-t border-gray-100 pt-4">
+                          {staffState?.loading ? (
+                            <div className="flex justify-center py-6">
+                              <Spinner size="sm" />
+                            </div>
+                          ) : !staffState?.doctors.length ? (
+                            <p className="text-sm text-gray-400 text-center py-4">No doctors registered at this hospital</p>
+                          ) : (
+                            <div className="space-y-4">
+                              {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([dept, docs]) => (
+                                <div key={dept}>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <Stethoscope className="h-3.5 w-3.5 text-[#0055BB]" />
+                                    <span className="text-xs font-semibold text-[#0055BB] uppercase tracking-wide">{dept}</span>
+                                    <span className="text-xs text-gray-400">({docs.length})</span>
+                                  </div>
+                                  <div className="grid sm:grid-cols-2 gap-2">
+                                    {docs.map(doc => (
+                                      <div key={doc._id} className="rounded-lg bg-gray-50 px-3 py-2.5">
+                                        <div className="flex items-center gap-2.5">
+                                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#0055BB]/10">
+                                            <User className="h-4 w-4 text-[#0055BB]" />
+                                          </div>
+                                          <p className="text-sm font-medium text-gray-900 truncate">
+                                            Dr. {doc.firstName} {doc.lastName}
+                                          </p>
+                                        </div>
+                                        {doc.workingHours && doc.workingHours.length > 0 && (
+                                          <div className="mt-2 ml-10 space-y-0.5">
+                                            {doc.workingHours.map((wh, idx) => (
+                                              <div key={idx} className="flex items-center gap-1.5 text-xs text-gray-500">
+                                                <Clock className="h-3 w-3 text-[#0055BB] flex-shrink-0" />
+                                                <span className="font-medium w-24">{wh.day}</span>
+                                                <span>{to12h(wh.start)} – {to12h(wh.end)}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           )}
         </TabsContent>
@@ -341,6 +440,13 @@ export default function HealthPassport() {
       </Tabs>
     </div>
   )
+}
+
+function to12h(time: string) {
+  const [h, m] = time.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const hour = h % 12 || 12
+  return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
 function InfoChip({ icon, label, value, highlight }: {

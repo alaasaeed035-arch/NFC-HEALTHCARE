@@ -6,7 +6,13 @@
       "mcp__codex__codex",
       "Bash(curl -s \"http://localhost:3000/auth/receptionists\" -H \"token: invalid\")",
       "Bash(curl -s -o /dev/null -w \"HTTP: %{http_code}\\\\n\" \"http://localhost:3000/auth/receptionists\" -H \"token: invalid\")",
-      "Bash(nslookup *)"
+      "Bash(nslookup *)",
+      "WebSearch",
+      "WebFetch(domain:docs.nvidia.com)",
+      "WebFetch(domain:build.nvidia.com)",
+      "WebFetch(domain:catalog.ngc.nvidia.com)",
+      "Bash(python -c ' *)",
+      "WebFetch(domain:console.groq.com)"
     ]
   }
 }

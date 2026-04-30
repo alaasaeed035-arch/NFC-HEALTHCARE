@@ -7,6 +7,8 @@ import requests
 import json
 import re
 import os
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 from datetime import datetime
 import logging
@@ -241,7 +243,7 @@ async def analyze_conflict_with_ai(prompt: str, patient_age: int, num_treatments
     
     # Call Groq API
     completion = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+        model="llama-3.3-70b-versatile",
         messages=[
             {
                 "role": "system",
@@ -257,7 +259,7 @@ async def analyze_conflict_with_ai(prompt: str, patient_age: int, num_treatments
     )
     
     ai_response = completion.choices[0].message.content
-    
+
     # Parse JSON response
     json_match = re.search(r'\{.*\}', ai_response, re.DOTALL)
     if json_match:
@@ -282,13 +284,16 @@ async def check_treatment_conflict(request: ConflictCheckRequest):
     logger.info(f"Received conflict check request for patient: {request.patient.name}")
     
     try:
-        # Fetch drug information
-        new_drug_info = DrugInfoService.get_complete_drug_info(request.new_treatment.name)
-        
-        current_drugs_info = [
-            DrugInfoService.get_complete_drug_info(t.name)
-            for t in request.patient.current_treatments
-        ]
+        # Fetch drug information for all drugs in parallel
+        loop = asyncio.get_running_loop()
+        drug_names = [request.new_treatment.name] + [t.name for t in request.patient.current_treatments]
+        with ThreadPoolExecutor() as executor:
+            drug_infos = await asyncio.gather(
+                *[loop.run_in_executor(executor, DrugInfoService.get_complete_drug_info, name)
+                  for name in drug_names]
+            )
+        new_drug_info = drug_infos[0]
+        current_drugs_info = list(drug_infos[1:])
         
         # Build prompt
         current_treatments_text = "\n".join([
@@ -366,35 +371,6 @@ Respond in JSON format:
             interactions=result.get("interactions", []),
             new_treatment_info=DrugInformation(**new_drug_info) if new_drug_info['has_data'] else None
         )
-
-        try:
-            # Save conflict analysis to MongoDB (if available)
-            if db is not None:
-                analysis_log = {
-                    "patient_id": request.patient.id or "unknown",
-                    "patient_name": request.patient.name,
-                    "patient_age": request.patient.age,
-                    "current_medications": [t.model_dump() for t in request.patient.current_treatments],
-                    "new_treatment": request.new_treatment.model_dump(),
-                    "analysis": {
-                        "has_conflict": response_obj.has_conflict,
-                        "severity": response_obj.severity,
-                        "analysis": response_obj.analysis,
-                        "recommendations": response_obj.recommendations,
-                        "interactions": response_obj.interactions
-                    },
-                    "fda_info": new_drug_info if new_drug_info['has_data'] else None,
-                    "created_at": datetime.utcnow(),
-                    "groq_model": "openai/gpt-oss-120b"
-                }
-                
-                await db.conflict_analyses.insert_one(analysis_log)
-                logger.info(f"✅ Conflict analysis logged to MongoDB for patient: {request.patient.name}")
-            else:
-                logger.debug("MongoDB not available - skipping conflict analysis logging")
-        except Exception as db_err:
-            logger.error(f"❌ MongoDB logging error: {db_err}")
-            # Don't fail the request if logging fails
 
         return response_obj
         

@@ -10,6 +10,8 @@ import DoctorDashboard from '@/pages/doctor/DoctorDashboard'
 import ReceptionistDashboard from '@/pages/receptionist/ReceptionistDashboard'
 import StaffManagement from '@/pages/admin_hospital/StaffManagement'
 import FacilityManagement from '@/pages/admin/FacilityManagement'
+import ProfilePage from '@/pages/profile/ProfilePage'
+import VerifyAccountPage from '@/pages/auth/VerifyAccountPage'
 
 export default function AppRouter() {
   return (
@@ -19,6 +21,7 @@ export default function AppRouter() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup/doctor" element={<DoctorSignupPage />} />
         <Route path="/signup/patient" element={<PatientSignupPage />} />
+        <Route path="/verify-account" element={<VerifyAccountPage />} />
 
         <Route
           path="/patient/health-passport"
@@ -70,6 +73,17 @@ export default function AppRouter() {
             <ProtectedRoute allowedRoles={['admin']}>
               <DashboardLayout>
                 <FacilityManagement />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute allowedRoles={['patient', 'doctor', 'receptionist', 'admin_hospital', 'admin']}>
+              <DashboardLayout>
+                <ProfilePage />
               </DashboardLayout>
             </ProtectedRoute>
           }

@@ -31,6 +31,14 @@ export interface Patient {
   createdAt?: string
 }
 
+export type WeekDay = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday'
+
+export interface WorkingHours {
+  day: WeekDay
+  start: string // "08:00"
+  end: string   // "16:00"
+}
+
 export interface Doctor {
   _id: string
   firstName: string
@@ -41,6 +49,7 @@ export interface Doctor {
   hospitalId?: string
   role: 'doctor'
   isVerified?: boolean
+  workingHours?: WorkingHours[]
 }
 
 export interface Hospital {

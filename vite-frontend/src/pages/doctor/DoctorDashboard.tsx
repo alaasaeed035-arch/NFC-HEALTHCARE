@@ -10,19 +10,14 @@ import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { Badge } from '@/components/ui/Badge'
 import { Spinner } from '@/components/ui/Spinner'
-import { SeverityBadge } from '@/components/ddi/SeverityBadge'
 import { DDITable } from '@/components/ddi/DDITable'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import type { Patient, MedicalRecord, DDISeverity } from '@/types'
+import type { Patient, MedicalRecord } from '@/types'
 import client from '@/api/client'
 import { useToast } from '@/components/ui/Toast'
 
 interface MedEntry { name: string; dosage: string; frequency: string; notes: string }
-interface ConflictResult {
-  has_conflict: boolean; severity: DDISeverity; analysis: string
-  recommendations: string[]; interactions: string[]
-}
 
 export default function DoctorDashboard() {
   const location = useLocation()
@@ -50,8 +45,8 @@ export default function DoctorDashboard() {
   // Add medication state
   const [newDiagnosis, setNewDiagnosis] = useState('')
   const [newTreatment, setNewTreatment] = useState('')
-  const [newMeds, setNewMeds] = useState<{ name: string; dosage: string; duration: string }[]>([
-    { name: '', dosage: '', duration: '' },
+  const [newMeds, setNewMeds] = useState<{ name: string; dosage: string; frequency: string; duration: string }[]>([
+    { name: '', dosage: '', frequency: '', duration: '' },
   ])
   const [addingRecord, setAddingRecord] = useState(false)
 
@@ -63,8 +58,8 @@ export default function DoctorDashboard() {
   const [ddiPatientId, setDdiPatientId] = useState('')
   const [ddiMed, setDdiMed] = useState<MedEntry>({ name: '', dosage: '', frequency: '', notes: '' })
   const [checkingDDI, setCheckingDDI] = useState(false)
-  const [ddiResult, setDdiResult] = useState<ConflictResult | null>(null)
   const [ddiError, setDdiError] = useState('')
+  const [ddiRefreshKey, setDdiRefreshKey] = useState(0)
 
   // Fetch queue + all patients
   const fetchQueue = useCallback(async () => {
@@ -124,7 +119,7 @@ export default function DoctorDashboard() {
       toast({ title: 'Medical record added successfully', variant: 'success' })
       setNewDiagnosis('')
       setNewTreatment('')
-      setNewMeds([{ name: '', dosage: '', duration: '' }])
+      setNewMeds([{ name: '', dosage: '', frequency: '', duration: '' }])
       handleSelectPatient(selectedPatient) // Refresh records
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } }; message?: string }
@@ -184,14 +179,14 @@ export default function DoctorDashboard() {
   const handleCheckDDI = async () => {
     if (!ddiPatientId) { setDdiError('Select a patient'); return }
     if (!ddiMed.name.trim()) { setDdiError('Enter medication name'); return }
-    setCheckingDDI(true); setDdiError(''); setDdiResult(null)
+    setCheckingDDI(true); setDdiError('')
     try {
       const res = await client.post('/api/ai-conflict/check-conflict', {
         patient_id: ddiPatientId, current_medications: getPatientMedications(), new_treatment: ddiMed,
       })
       const d = res.data
-      const result: ConflictResult = d.data?.analysis ?? d.analysis ?? d
-      setDdiResult(result)
+      const result = d.data?.analysis ?? d.analysis ?? d
+      setDdiRefreshKey(k => k + 1)
       toast({
         title: result.has_conflict ? 'Drug Interaction Detected' : 'No Conflicts Found',
         description: result.has_conflict ? `Severity: ${result.severity}` : 'Medications appear safe',
@@ -216,8 +211,30 @@ export default function DoctorDashboard() {
     <div className="flex justify-center items-center h-64"><Spinner size="lg" /></div>
   )
 
+  const scrollTo = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
     <div className="space-y-6">
+      {/* Quick-nav tabs */}
+      <div className="flex gap-2 border-b pb-2">
+        <button
+          onClick={() => scrollTo('patients')}
+          className="px-4 py-1.5 rounded-md text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+        >
+          Patient Queue
+        </button>
+        {queuePatients.length > 0 && (
+          <button
+            onClick={() => scrollTo('ddi-log')}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium text-orange-600 hover:bg-orange-50 transition-colors"
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />DDI Reports
+          </button>
+        )}
+      </div>
+
       <div className="flex gap-6 flex-col lg:flex-row">
         {/* LEFT: Patient Queue */}
         <div id="patients" className="w-full lg:w-80 flex-shrink-0 space-y-4">
@@ -408,22 +425,28 @@ export default function DoctorDashboard() {
                   <div className="space-y-2">
                     <Label className="flex items-center gap-1.5"><Pill className="h-3.5 w-3.5 text-[#0055BB]" />Medications</Label>
                     {newMeds.map((med, i) => (
-                      <div key={i} className="flex gap-2 items-start">
-                        <Input placeholder="Drug name *" className="flex-1 h-9 text-sm" value={med.name}
-                          onChange={e => { const m = [...newMeds]; m[i] = { ...m[i], name: e.target.value }; setNewMeds(m) }} />
-                        <Input placeholder="Dosage" className="w-28 h-9 text-sm" value={med.dosage}
-                          onChange={e => { const m = [...newMeds]; m[i] = { ...m[i], dosage: e.target.value }; setNewMeds(m) }} />
-                        <Input placeholder="Duration" className="w-28 h-9 text-sm" value={med.duration}
-                          onChange={e => { const m = [...newMeds]; m[i] = { ...m[i], duration: e.target.value }; setNewMeds(m) }} />
-                        {newMeds.length > 1 && (
-                          <Button variant="outline" size="sm" className="h-9 px-2"
-                            onClick={() => setNewMeds(newMeds.filter((_, j) => j !== i))}>
-                            <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                          </Button>
-                        )}
+                      <div key={i} className="space-y-1.5 p-2.5 border rounded-lg bg-gray-50/50">
+                        <div className="flex gap-2 items-center">
+                          <Input placeholder="Drug name *" className="flex-1 h-9 text-sm" value={med.name}
+                            onChange={e => { const m = [...newMeds]; m[i] = { ...m[i], name: e.target.value }; setNewMeds(m) }} />
+                          {newMeds.length > 1 && (
+                            <Button variant="outline" size="sm" className="h-9 px-2 flex-shrink-0"
+                              onClick={() => setNewMeds(newMeds.filter((_, j) => j !== i))}>
+                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                            </Button>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Input placeholder="Dosage" className="flex-1 h-8 text-sm" value={med.dosage}
+                            onChange={e => { const m = [...newMeds]; m[i] = { ...m[i], dosage: e.target.value }; setNewMeds(m) }} />
+                          <Input placeholder="Frequency" className="flex-1 h-8 text-sm" value={med.frequency}
+                            onChange={e => { const m = [...newMeds]; m[i] = { ...m[i], frequency: e.target.value }; setNewMeds(m) }} />
+                          <Input placeholder="Duration" className="flex-1 h-8 text-sm" value={med.duration}
+                            onChange={e => { const m = [...newMeds]; m[i] = { ...m[i], duration: e.target.value }; setNewMeds(m) }} />
+                        </div>
                       </div>
                     ))}
-                    <Button variant="outline" size="sm" onClick={() => setNewMeds([...newMeds, { name: '', dosage: '', duration: '' }])}>
+                    <Button variant="outline" size="sm" onClick={() => setNewMeds([...newMeds, { name: '', dosage: '', frequency: '', duration: '' }])}>
                       <Plus className="h-3.5 w-3.5 mr-1" />Add Another Medication
                     </Button>
                   </div>
@@ -470,27 +493,15 @@ export default function DoctorDashboard() {
                 <Label className="text-xs">New Medication</Label>
                 <Input placeholder="Drug name *" className="h-8 text-xs" value={ddiMed.name}
                   onChange={e => setDdiMed(m => ({ ...m, name: e.target.value }))} />
-                <Input placeholder="Dosage" className="h-8 text-xs" value={ddiMed.dosage}
+                <Input placeholder="Dosage (e.g. 500mg)" className="h-8 text-xs" value={ddiMed.dosage}
                   onChange={e => setDdiMed(m => ({ ...m, dosage: e.target.value }))} />
+                <Input placeholder="Frequency (e.g. twice daily)" className="h-8 text-xs" value={ddiMed.frequency}
+                  onChange={e => setDdiMed(m => ({ ...m, frequency: e.target.value }))} />
               </div>
               {ddiError && <p className="text-xs text-red-500">{ddiError}</p>}
               <Button onClick={handleCheckDDI} disabled={checkingDDI} className="w-full h-8 text-xs">
                 {checkingDDI ? <><Spinner size="sm" /> Analyzing...</> : <><ShieldAlert className="h-3.5 w-3.5 mr-1" />Check Interactions</>}
               </Button>
-              {ddiResult && (
-                <div className={`rounded-xl border p-3 space-y-2 ${ddiResult.has_conflict ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'}`}>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold">{ddiResult.has_conflict ? 'Conflict Detected' : 'No Conflicts'}</p>
-                    <SeverityBadge severity={ddiResult.severity} />
-                  </div>
-                  <p className="text-[11px] text-gray-700">{ddiResult.analysis}</p>
-                  {ddiResult.recommendations?.length > 0 && (
-                    <ul className="list-disc list-inside space-y-0.5">
-                      {ddiResult.recommendations.map((r, i) => <li key={i} className="text-[11px] text-gray-600">{r}</li>)}
-                    </ul>
-                  )}
-                </div>
-              )}
             </CardContent>
           </Card>
         </div>}
@@ -498,13 +509,13 @@ export default function DoctorDashboard() {
 
       {/* DDI Log — only shown when patients are in queue */}
       {queuePatients.length > 0 && (
-        <Card>
+        <Card id="ddi-log">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-orange-500" />Drug Interaction Conflict Log
             </CardTitle>
           </CardHeader>
-          <CardContent><DDITable patientIds={queuePatients.map(p => p._id)} /></CardContent>
+          <CardContent><DDITable patientIds={queuePatients.map(p => p._id)} refreshKey={ddiRefreshKey} /></CardContent>
         </Card>
       )}
 

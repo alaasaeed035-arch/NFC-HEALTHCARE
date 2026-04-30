@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
+import multer from 'multer';
+import axios from 'axios';
 import { isAuthenticated } from '../../middleware/authentication.js';
 import { isAuthorized } from '../../middleware/autheraization.js';
 import { asyncHandler } from '../../middleware/asyncHandler.js';
@@ -7,6 +9,17 @@ import { roles } from '../../utils/constant/enum.js';
 import { AppError } from '../../utils/appError.js';
 import { callChatbotService, checkChatbotHealth } from '../../utils/chatbot-service-config.js';
 import { Patient, MedicalRecord, PatientChatLog } from '../../../db/index.js';
+
+// ─── Voice upload middleware ───────────────────────────────────────────────────
+// Stores the audio in memory (buffer) — no disk I/O needed for small recordings.
+const _multerAudio = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB max
+}).single('audio');
+
+// Promise wrapper so multer errors flow through our asyncHandler / AppError system
+const uploadAudio = (req, res) =>
+    new Promise((resolve, reject) => _multerAudio(req, res, err => (err ? reject(err) : resolve())));
 
 const chatbotRouter = Router();
 
@@ -298,6 +311,71 @@ chatbotRouter.get(
             count: logs.length,
             data: logs.reverse(),
         });
+    })
+);
+
+/**
+ * POST /chatbot/voice
+ *
+ * Flow:
+ *   1. Accept multipart/form-data with field "audio" (webm / ogg / wav)
+ *   2. Forward raw bytes to FastAPI POST /speech-to-text (Whisper, Arabic)
+ *   3. Return { success: true, text: "<transcription>" }
+ *
+ * The frontend puts the transcription in the chat input so the user can
+ * review / edit it before sending — satisfying the "edit before send" UX
+ * requirement.  The actual chatbot call then goes through POST /chatbot/message
+ * as normal.
+ */
+chatbotRouter.post(
+    '/voice',
+    isAuthenticated(),
+    isAuthorized([roles.PATIENT, roles.DOCTOR, roles.ADMIN_HOSPITAL]),
+    asyncHandler(async (req, res, next) => {
+        // Run multer — stores audio in req.file.buffer
+        try {
+            await uploadAudio(req, res);
+        } catch (multerErr) {
+            return next(new AppError(`Audio upload error: ${multerErr.message}`, 400));
+        }
+
+        if (!req.file) {
+            return next(new AppError(
+                'No audio file received. Send multipart/form-data with field name "audio".',
+                400,
+            ));
+        }
+
+        const CHATBOT_URL = process.env.CHATBOT_SERVICE_URL || 'http://localhost:8001';
+
+        // Build a native FormData (available in Node 18+) to forward the audio
+        // buffer to FastAPI as multipart/form-data.
+        const blob = new Blob([req.file.buffer], { type: req.file.mimetype || 'audio/webm' });
+        const formData = new FormData();
+        formData.append('audio', blob, req.file.originalname || 'recording.webm');
+
+        let sttRes;
+        try {
+            sttRes = await axios.post(`${CHATBOT_URL}/speech-to-text`, formData, {
+                timeout: 60_000, // Whisper can take ~10-30 s for "base" model on CPU
+            });
+        } catch (err) {
+            if (err.code === 'ECONNREFUSED') {
+                return next(new AppError(
+                    'Speech-to-text service is not running on port 8001.',
+                    503,
+                ));
+            }
+            const detail = err.response?.data?.detail || err.message;
+            return next(new AppError(`Transcription failed: ${detail}`, err.response?.status || 502));
+        }
+
+        const text = sttRes.data?.text;
+        if (!text) {
+            return next(new AppError('Transcription returned empty text.', 422));
+        }
+
+        return res.status(200).json({ success: true, text });
     })
 );
 

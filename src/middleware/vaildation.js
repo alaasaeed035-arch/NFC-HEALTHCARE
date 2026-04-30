@@ -6,7 +6,9 @@ import { bloodTypes, genderTypes, roles } from '../utils/constant/enum.js';
 export const generalFields = {
     name: joi.string(),
     email: joi.string().email(),
-    password: joi.string().pattern(new RegExp(/^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/)),
+    password: joi.string().pattern(new RegExp(/^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/)).messages({
+        'string.pattern.base': 'Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a number, and a special character (#?!@$%^&*-)',
+    }),
     specialization: joi.string(),
     phoneNumber: joi.string().pattern(new RegExp(/^01[0-2,5]{1}[0-9]{8}$/)),
     address: joi.string(),
@@ -24,7 +26,8 @@ export const generalFields = {
       joi.object({
         name: joi.string().trim(),
         dosage: joi.string().trim(),
-        duration: joi.string().trim(),
+        frequency: joi.string().trim().allow(''),
+        duration: joi.string().trim().allow(''),
       })),
     visitDate: joi.date().default(Date.now),
     nationalId: joi.string().trim().min(1),   // Accept any non-empty string for national ID
@@ -50,7 +53,12 @@ export const isValid = (schema) => {
         let data = { ...req.body, ...req.params, ...req.query }
         const { error } = schema.validate(data, { abortEarly: false })
         if (error) {
-            const errorMessage = error.details.map(detail => detail.message).join(', ');
+            const errorMessage = error.details.map(detail => {
+                if (detail.type === 'string.pattern.base' && detail.context?.key?.toLowerCase().includes('password')) {
+                    return 'Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a number, and a special character (#?!@$%^&*-)';
+                }
+                return detail.message;
+            }).join(', ');
             return next(new AppError(errorMessage, 400));
         }
         next()

@@ -140,11 +140,11 @@ export const signupDoctor = async (req, res, next) => {
   });
 
   // Send verification email
-  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.headers.host}`;
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   await sendEmail({
     to: email,
     subject: "Verify your Doctor Account",
-    html: `<p>Click the link to verify your account: <a href="${baseUrl}/auth/verify/${token}">Verify Account</a></p>`
+    html: `<p>Click the link to verify your account: <a href="${frontendUrl}/verify-account?token=${token}">Verify Account</a></p>`
   });
 
   // Send response
@@ -302,81 +302,101 @@ export const getProfileDoctor = async (req, res, next) => {
   })
 }
 
-// Forget Password (Doctor)
+// Forget Password (any staff — Doctor or User model)
 export const forgetPasswordDoctor = async (req, res, next) => {
   const { email } = req.body;
 
-  // check existence
-  const doctorExist = await Doctor.findOne({ email });
-  if (!doctorExist) {
-    return next(new AppError(messages.doctor.notExist, 401));
+  let account = await Doctor.findOne({ email });
+  if (!account) account = await User.findOne({ email });
+  if (!account) {
+    return next(new AppError('No staff account found with this email', 404));
   }
 
-  // generate OTP
   const otp = generateOTP();
-
-  //  SEND EMAIL WITH OTP
-  await sendOTP(doctorExist.email, otp);
-
-  // save OTP + expiry
-  doctorExist.otp = otp;
-  doctorExist.otpExpires = Date.now() + 10 * 60 * 1000;
-
-  const saved = await doctorExist.save();
-  if (!saved) {
-    return next(new AppError(messages.doctor.failToUpdate, 500));
-  }
+  await sendOTP(account.email, otp);
+  account.otp = otp;
+  account.otpExpires = Date.now() + 10 * 60 * 1000;
+  await account.save();
 
   return res.status(200).json({
-    message: messages.doctor.otpSent,
+    message: 'OTP sent to your email',
     success: true,
   });
 };
 
-// Verify OTP & Reset Password (Doctor)
+// Verify OTP & Reset Password (any staff — Doctor or User model)
 export const verifyOtpAndResetPasswordDoctor = async (req, res, next) => {
   const { email, otp, newPassword } = req.body;
 
-  // find doctor (include password)
-  const doctor = await Doctor.findOne({ email }).select("+password");
-  if (!doctor) {
-    return next(new AppError(messages.doctor.notExist, 404));
+  let account = await Doctor.findOne({ email });
+  if (!account) account = await User.findOne({ email });
+  if (!account) {
+    return next(new AppError('No staff account found with this email', 404));
   }
 
-  // convert otp to string to avoid mismatch (fixes most errors)
-  const storedOtp = String(doctor.otp);
+  const storedOtp = String(account.otp);
   const enteredOtp = String(otp);
 
-  // check otp validity
-  if (storedOtp !== enteredOtp || Date.now() > doctor.otpExpires) {
-    return next(new AppError(messages.doctor.invalidOTP, 400));
+  if (storedOtp !== enteredOtp || Date.now() > new Date(account.otpExpires).getTime()) {
+    return next(new AppError('Invalid or expired OTP', 400));
   }
 
-  // check new password is not same as old
-  const isSame = await bcrypt.compare(newPassword, doctor.password);
+  const isSame = await bcrypt.compare(newPassword, account.password);
   if (isSame) {
-    return next(new AppError(messages.doctor.samePassword, 400));
+    return next(new AppError('New password must differ from your current password', 400));
   }
 
-  // hash new password
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-  // update doctor password + clear otp
-  doctor.password = hashedPassword;
-  doctor.otp = undefined;
-  doctor.otpExpires = undefined;
-
-  const updated = await doctor.save();
-  if (!updated) {
-    return next(new AppError(messages.doctor.failToUpdate, 400));
-  }
+  account.password = await bcrypt.hash(newPassword, 10);
+  account.otp = undefined;
+  account.otpExpires = undefined;
+  await account.save();
 
   return res.status(200).json({
-    message: messages.doctor.passwordUpdated,
+    message: 'Password updated successfully',
     success: true
   });
 };
 
+
+// Forget Password — any staff role (Doctor or User model)
+export const forgetPasswordStaff = async (req, res, next) => {
+  const { email } = req.body;
+
+  let account = await Doctor.findOne({ email });
+  if (!account) account = await User.findOne({ email });
+  if (!account) return next(new AppError('No staff account found with this email', 404));
+
+  const otp = generateOTP();
+  await sendOTP(account.email, otp);
+  account.otp = otp;
+  account.otpExpires = Date.now() + 10 * 60 * 1000;
+  await account.save();
+
+  return res.status(200).json({ success: true, message: 'OTP sent to your email' });
+};
+
+// Reset Password — any staff role (Doctor or User model)
+export const resetPasswordStaff = async (req, res, next) => {
+  const { email, otp, newPassword } = req.body;
+
+  let account = await Doctor.findOne({ email }).select('+password');
+  if (!account) account = await User.findOne({ email }).select('+password');
+  if (!account) return next(new AppError('No staff account found with this email', 404));
+
+  if (String(account.otp) !== String(otp) || Date.now() > account.otpExpires) {
+    return next(new AppError('Invalid or expired OTP', 400));
+  }
+
+  const isSame = await bcrypt.compare(newPassword, account.password);
+  if (isSame) return next(new AppError('New password must differ from current password', 400));
+
+  account.password = await bcrypt.hash(newPassword, 10);
+  account.otp = undefined;
+  account.otpExpires = undefined;
+  await account.save();
+
+  return res.status(200).json({ success: true, message: 'Password updated successfully' });
+};
 
 // Update Patient Profile
 export const updatePatientProfile = async (req, res, next) => {
