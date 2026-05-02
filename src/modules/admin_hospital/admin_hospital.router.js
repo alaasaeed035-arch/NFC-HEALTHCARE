@@ -3,9 +3,9 @@ import { isAuthenticated } from "../../middleware/authentication.js";
 import { isAuthorized } from "../../middleware/autheraization.js";
 import { roles } from "../../utils/constant/enum.js";
 import { isValid } from "../../middleware/vaildation.js";
-import { deleteDoctorSchema, deleteReceptionistSchema, receptionistHospitalSchema, updateReceptionistSchema, verifyReceptionistOtpSchema, resendReceptionistOtpSchema } from "./admin_hospital.validation.js";
+import { deleteDoctorSchema, deleteReceptionistSchema, receptionistHospitalSchema, updateReceptionistSchema, verifyReceptionistOtpSchema, resendReceptionistOtpSchema, pharmacistHospitalSchema, verifyPharmacistOtpSchema, resendPharmacistOtpSchema, deletePharmacistSchema } from "./admin_hospital.validation.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { createReceptionist, deleteDoctor, deleteReceptionist, getAdminHospitalProfile, getAllReceptionists, updateReceptionist, getHospitalDoctors, getHospitalPatients, verifyReceptionistOtp, resendReceptionistOtp, setDoctorWorkingHours } from "./admin_hospital.controller.js";
+import { createReceptionist, deleteDoctor, deleteReceptionist, getAdminHospitalProfile, getAllReceptionists, updateReceptionist, getHospitalDoctors, getHospitalPatients, verifyReceptionistOtp, resendReceptionistOtp, setDoctorWorkingHours, createPharmacist, getAllPharmacists, verifyPharmacistOtp, resendPharmacistOtp, deletePharmacist } from "./admin_hospital.controller.js";
 
 
 const adminHospitalRouter = Router();
@@ -86,6 +86,42 @@ adminHospitalRouter.put('/doctor/:doctorId/working-hours',
     isAuthenticated(),
     isAuthorized([roles.ADMIN_HOSPITAL]),
     asyncHandler(setDoctorWorkingHours)
+)
+
+// ── Pharmacist management ─────────────────────────────────────────────────
+
+adminHospitalRouter.post('/create-pharmacist',
+    isAuthenticated(),
+    isAuthorized([roles.ADMIN_HOSPITAL]),
+    isValid(pharmacistHospitalSchema),
+    asyncHandler(createPharmacist)
+)
+
+adminHospitalRouter.get('/pharmacists',
+    isAuthenticated(),
+    isAuthorized([roles.ADMIN_HOSPITAL]),
+    asyncHandler(getAllPharmacists)
+)
+
+adminHospitalRouter.post('/verify-pharmacist-otp',
+    isAuthenticated(),
+    isAuthorized([roles.ADMIN_HOSPITAL]),
+    isValid(verifyPharmacistOtpSchema),
+    asyncHandler(verifyPharmacistOtp)
+)
+
+adminHospitalRouter.post('/resend-pharmacist-otp',
+    isAuthenticated(),
+    isAuthorized([roles.ADMIN_HOSPITAL]),
+    isValid(resendPharmacistOtpSchema),
+    asyncHandler(resendPharmacistOtp)
+)
+
+adminHospitalRouter.delete('/pharmacist/:pharmacistId',
+    isAuthenticated(),
+    isAuthorized([roles.ADMIN_HOSPITAL]),
+    isValid(deletePharmacistSchema),
+    asyncHandler(deletePharmacist)
 )
 
 // get profile admin hospital route

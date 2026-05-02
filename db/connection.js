@@ -28,7 +28,9 @@ export async function dbConnection() {
       serverSelectionTimeoutMS: 30000,
       socketTimeoutMS: 45000,
       connectTimeoutMS: 30000,
-      bufferCommands: false, // never silently buffer — fail fast if not connected
+      bufferCommands: false,
+      tls: true,
+      tlsAllowInvalidCertificates: true,
     });
   }
 

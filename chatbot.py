@@ -1,6 +1,7 @@
 """
 Patient Medical QA Chatbot — Port 8001
-Flow: patients + medicalrecords → prompt → Groq LLM → response
+Flow: patients + medicalrecords → prompt → Gemini LLM → response
+STT: Speechmatics Arabic (enhanced) — best accuracy for Egyptian Arabic dialect
 """
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
@@ -8,14 +9,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from openai import OpenAI
-from groq import Groq as GroqClient
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 import asyncio
 import os
 import re
+import time
+import json
 import logging
-from datetime import datetime, date
+import tempfile
+import subprocess
+import requests as _req
+from datetime import datetime, date, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -23,19 +28,19 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-MONGO_URI          = os.getenv("MONGO_URI", "mongodb://localhost:27017/nfc-healthcare")
-GEMINI_API_KEY     = os.getenv("GEMINI_API_KEY")
-CHATBOT_GROQ_MODEL = os.getenv("CHATBOT_GROQ_MODEL", "gemini-2.5-flash")
-CHAT_COLLECTION    = os.getenv("CHAT_COLLECTION", "patient_chat_logs")
-DDI_SERVICE_URL    = os.getenv("DDI_SERVICE_URL", "http://localhost:8000")
-GROQ_STT_API_KEY   = (
-    os.getenv("GROQ_STT_API_KEY")
-    or os.getenv("DDI_GROQ_API_KEY")
-    or os.getenv("CHATBOT_GROQ_API_KEY")
-)
+MONGO_URI               = os.getenv("MONGO_URI", "mongodb+srv://bodytarek2003_db_user:bPzJxGCug6LhNKxl@cluster0.qkbfket.mongodb.net/nfc-healthcare?appName=Cluster0")
+GEMINI_API_KEY          = os.getenv("GEMINI_API_KEY")
+SPEECHMATICS_API_KEY    = os.getenv("SPEECHMATICS_API_KEY")
+CHATBOT_GROQ_MODEL      = os.getenv("CHATBOT_GROQ_MODEL", "gemini-2.5-flash")
+CHAT_COLLECTION         = os.getenv("CHAT_COLLECTION", "patient_chat_logs")
+DDI_SERVICE_URL         = os.getenv("DDI_SERVICE_URL", "http://localhost:8000")
+SPEECHMATICS_URL        = "https://asr.api.speechmatics.com/v2"
+GROQ_API_KEY            = os.getenv("GROQ_API_KEY")
 
 if not GEMINI_API_KEY:
     logger.warning("GEMINI_API_KEY not set — chatbot will not function")
+if not SPEECHMATICS_API_KEY:
+    logger.warning("SPEECHMATICS_API_KEY not set — speech-to-text will not function")
 
 groq_client = OpenAI(
     api_key=GEMINI_API_KEY,
@@ -45,9 +50,11 @@ groq_client = OpenAI(
 mongo_client = None
 db = None
 
-stt_client = GroqClient(api_key=GROQ_STT_API_KEY) if GROQ_STT_API_KEY else None
-if not GROQ_STT_API_KEY:
-    logger.warning("No Groq STT API key found — POST /speech-to-text will return 503")
+# ── Hospital cache (5-minute TTL) ─────────────────────────────────────────────
+_hospital_cache: list = []
+_hospital_cache_ts: float = 0.0
+_HOSPITAL_TTL = 300  # seconds
+
 
 async def init_mongodb():
     global mongo_client, db
@@ -97,8 +104,6 @@ def _is_unsafe(text: str) -> bool:
     return any(p in t for p in _UNSAFE)
 
 # ── DDI integration ───────────────────────────────────────────────────────────
-# Patterns that flag a message as a drug-interaction question.
-# Covers Egyptian Arabic phrasings and common English phrasings.
 _DDI_PATTERNS = re.compile(
     # Arabic patterns
     r"تداخل.{0,20}دوائي"
@@ -119,7 +124,6 @@ _DDI_PATTERNS = re.compile(
 
 
 def _parse_med_string(med_str: str) -> dict:
-    """'Metformin 500mg for 30 days' → {name, dosage, frequency, notes}."""
     parts = med_str.split(" for ")
     tokens = parts[0].strip().split()
     name = tokens[0] if tokens else med_str
@@ -128,7 +132,6 @@ def _parse_med_string(med_str: str) -> dict:
 
 
 async def _extract_drug_name(message: str) -> Optional[str]:
-    """Ask the LLM to extract and translate the new drug name to English."""
     if not groq_client:
         return None
     try:
@@ -160,12 +163,6 @@ async def _extract_drug_name(message: str) -> Optional[str]:
 
 
 async def _call_ddi_service(patient_data: dict, new_drug: str) -> Optional[dict]:
-    """
-    POST to the DDI service (main.py, port 8000) and return the raw result.
-    Uses run_in_executor so the async event loop is never blocked.
-    Falls back to None if the service is unreachable — caller will fall through
-    to the normal chatbot flow.
-    """
     import requests as _req
 
     current_treatments = [
@@ -206,31 +203,42 @@ async def _call_ddi_service(patient_data: dict, new_drug: str) -> Optional[dict]
 
 
 _SEVERITY_LABEL = {
-    "none":     "✅ No known drug interaction",
-    "low":      "🟡 Minor interaction",
-    "moderate": "🟠 Moderate interaction — requires attention",
-    "high":     "🔴 High-risk interaction — consult your doctor immediately",
-    "critical": "🚨 Critical interaction — do NOT take without doctor approval",
+    "none":     "لا يوجد تفاعل دوائي معروف",
+    "low":      "تفاعل بسيط",
+    "moderate": "تفاعل متوسط — يحتاج انتباه",
+    "high":     "تفاعل عالي الخطورة — راجع دكتورك فورا",
+    "critical": "تفاعل حرج — لا تاخده من غير موافقة الدكتور",
 }
 
 
-def _format_ddi_fallback(ddi: dict, new_drug: str) -> str:
-    """Plain-text summary when the LLM simplifier is unavailable."""
-    sev = _SEVERITY_LABEL.get(ddi.get("severity", "none"), "Unknown severity")
-    lines = [f"**Drug Interaction Check — {new_drug}**", "", sev, ""]
-    for r in ddi.get("recommendations", [])[:4]:
-        lines.append(f"• {r}")
-    lines += ["", "🏥 Always consult your doctor before taking any new medication."]
+_SEVERITY_LABEL_EN = {
+    "none":     "No known drug interaction",
+    "low":      "Minor interaction",
+    "moderate": "Moderate interaction — use with caution",
+    "high":     "High-risk interaction — consult your doctor immediately",
+    "critical": "Critical interaction — do not take without doctor approval",
+}
+
+def _format_ddi_fallback(ddi: dict, new_drug: str, arabic: bool = True) -> str:
+    if arabic:
+        sev = _SEVERITY_LABEL.get(ddi.get("severity", "none"), "خطورة غير معروفة")
+        lines = [f"فحص التفاعل الدوائي — {new_drug}", "", sev, ""]
+        for r in ddi.get("recommendations", [])[:4]:
+            lines.append(f"• {r}")
+        lines += ["", "راجع دكتورك قبل ما تاخد أي دواء جديد."]
+    else:
+        sev = _SEVERITY_LABEL_EN.get(ddi.get("severity", "none"), "Unknown severity")
+        lines = [f"Drug Interaction Check — {new_drug}", "", sev, ""]
+        for r in ddi.get("recommendations", [])[:4]:
+            lines.append(f"• {r}")
+        lines += ["", "Please consult your doctor before taking any new medication."]
     return "\n".join(lines)
 
 
 async def _simplify_ddi(ddi: dict, patient_data: dict, new_drug: str, user_message: str = "") -> str:
-    """
-    Re-phrase the technical DDI analysis in plain Arabic for the patient.
-    Uses the same LLM as the chatbot so no extra API key is needed.
-    """
+    arabic = _is_arabic(user_message)
     if not groq_client:
-        return _format_ddi_fallback(ddi, new_drug)
+        return _format_ddi_fallback(ddi, new_drug, arabic)
 
     tech_summary = (
         f"Drug being asked about: {new_drug}\n"
@@ -241,8 +249,8 @@ async def _simplify_ddi(ddi: dict, patient_data: dict, new_drug: str, user_messa
         f"Known interactions: {'; '.join(ddi.get('interactions', []))}"
     )
 
-    patient_name = patient_data.get("name", "the patient")
-    current_meds  = ", ".join(patient_data.get("medications", [])) or "No medications recorded"
+    patient_name = patient_data.get("name", "المريض")
+    current_meds = "، ".join(patient_data.get("medications", [])) or "لا يوجد أدوية مسجلة"
 
     try:
         loop = asyncio.get_running_loop()
@@ -252,25 +260,26 @@ async def _simplify_ddi(ddi: dict, patient_data: dict, new_drug: str, user_messa
                 model=CHATBOT_GROQ_MODEL,
                 messages=[
                     {"role": "system", "content": (
-                        f"You are a medical assistant explaining a drug interaction check result to patient {patient_name}.\n"
-                        f"Their current medications: {current_meds}.\n\n"
-                        "Strict rules:\n"
-                        "- If there is an interaction: clearly and simply explain the risk (why it happens, what the harm is)\n"
-                        "- If there is no interaction: reassure the patient — no need to add a doctor warning\n"
-                        "- Use clear bullet points and symbols\n"
-                        "- Do not exceed 200 words\n"
-                        "- Only recommend seeing a doctor if the severity is moderate, high, or critical\n"
-                        "- Never advise stopping a current medication\n"
-                        "- Respond in the same language the patient used in their message"
+                        f"أنت مساعد طبي بتشرح نتيجة فحص تفاعل الأدوية للمريض {patient_name}.\n"
+                        f"أدويته الحالية: {current_meds}.\n\n"
+                        "قواعد:\n"
+                        "- لو الرسالة بالعربي: رد باللهجة المصرية البسيطة فقط، متستخدمش إنجليزي إلا في أسماء الأدوية\n"
+                        "- لو الرسالة بالإنجليزي: رد بالإنجليزي\n"
+                        "- لو في تفاعل: اشرح الخطر ببساطة (ليه بيحصل وإيه الضرر)\n"
+                        "- لو مفيش تفاعل: طمن المريض من غير ما تنصحه يراجع دكتور\n"
+                        "- استخدم bullet points ورموز واضحة\n"
+                        "- متتعدش 150 كلمة\n"
+                        "- انصح بزيارة دكتور بس لو الخطورة متوسطة أو عالية\n"
+                        "- متنصحش بوقف أي دواء حالي\n"
                     )},
-                    {"role": "user", "content": f"Patient's message: {user_message}\n\nExplain this result to the patient in simple language:\n\n{tech_summary}"},
+                    {"role": "user", "content": f"رسالة المريض: {user_message}\n\nاشرح النتيجة دي للمريض بلغة بسيطة:\n\n{tech_summary}"},
                 ],
-                temperature=0.3,
-                max_tokens=600,
+                temperature=0.5,
+                max_tokens=1024,
             ),
         )
         reply = resp.choices[0].message.content
-        return reply if not _is_unsafe(reply) else _format_ddi_fallback(ddi, new_drug)
+        return reply if not _is_unsafe(reply) else _format_ddi_fallback(ddi, new_drug, arabic)
     except Exception as exc:
         logger.error("DDI simplification failed: %s", exc)
         return _format_ddi_fallback(ddi, new_drug)
@@ -293,13 +302,11 @@ def _calc_age(dob) -> Optional[int]:
     except Exception:
         return None
 
-# ── Chat history fetch ────────────────────────────────────────────────────────
+# ── Chat history ──────────────────────────────────────────────────────────────
 async def _trim_chat_history(patient_id: str, keep: int = 5) -> None:
-    """Delete all but the newest `keep` exchanges for this patient."""
     if db is None:
         return
     try:
-        # Find IDs of documents beyond the newest `keep`
         old_docs = await db[CHAT_COLLECTION].find(
             {"patient_id": patient_id},
             {"_id": 1},
@@ -309,17 +316,12 @@ async def _trim_chat_history(patient_id: str, keep: int = 5) -> None:
             ids = [d["_id"] for d in old_docs]
             result = await db[CHAT_COLLECTION].delete_many({"_id": {"$in": ids}})
             if result.deleted_count:
-                logger.info(
-                    "Trimmed %d old chat log(s) for patient %s",
-                    result.deleted_count, patient_id,
-                )
+                logger.info("Trimmed %d old chat log(s) for patient %s", result.deleted_count, patient_id)
     except Exception as exc:
         logger.warning("Chat history trim failed: %s", exc)
 
 
 async def fetch_chat_history(patient_id: str, limit: int = 5) -> List[dict]:
-    """Load the last `limit` exchanges from patient_chat_logs and return them
-    as [{role, content}, ...] in chronological order."""
     if db is None:
         return []
     try:
@@ -328,7 +330,7 @@ async def fetch_chat_history(patient_id: str, limit: int = 5) -> List[dict]:
             {"user_message": 1, "assistant_reply": 1, "created_at": 1},
         ).sort("created_at", -1).limit(limit).to_list(length=limit)
 
-        logs.reverse()  # oldest → newest
+        logs.reverse()
 
         history: List[dict] = []
         for log in logs:
@@ -403,46 +405,100 @@ async def fetch_patient_data(patient_id: str) -> dict:
                         med += f" for {m['duration']}"
                     meds.append(med)
 
-        data["medications"]     = list(dict.fromkeys(meds))  # deduplicate
+        data["medications"]     = list(dict.fromkeys(meds))
         data["medical_history"] = history
 
     return data
 
-# ── Prompt builder ────────────────────────────────────────────────────────────
-def build_messages(patient_data: dict, history: List[dict], question: str) -> List[dict]:
-    system = (
-        "You are a knowledgeable medical assistant chatbot. You answer ALL medical questions fully and helpfully.\n"
-        "- Answer any general medical question (symptoms, diseases, prevention, nutrition, lifestyle, etc.) using your medical knowledge\n"
-        "- When the patient's data is relevant to the question, personalize the answer using it\n"
-        "- When the question is general (e.g. 'what are diabetes symptoms?'), answer it fully — do NOT refuse or redirect to a doctor just because it is not in the patient's records\n"
-        "- NEVER reveal, mention, or reference emergency contact information under any circumstances\n"
-        "- Do not hallucinate or invent medical facts\n"
-        "- Keep answers clear, simple and safe\n"
-        "- Avoid medical jargon unless necessary\n"
-        "- Be direct and structured in your answers\n"
-        "- Do not diagnose the patient or prescribe specific medications\n"
-        "- Do NOT end every response with 'consult your doctor' — only include that advice when there is genuine risk or urgency\n"
-        "- When asked about medications or drug interactions:\n"
-             "  - Use this exact compact format for each interacting pair (one line per pair):\n"
-             "    🔴 High | DrugA + DrugB — one-sentence reason\n"
-             "    🟠 Moderate | DrugA + DrugB — one-sentence reason\n"
-             "    🟡 Low | DrugA + DrugB — one-sentence reason\n"
-             "    ✅ No interaction | DrugA + DrugB\n"
-             "  - Group all pairs under a single '**Drug Interactions**' heading\n"
-             "  - Do NOT repeat 'Action: Consult your doctor' after every line — add one summary note at the end only if there are high/critical pairs\n"
-             "  - Do NOT use nested bullet points or sub-bullets\n"
-             "  - Do NOT write a separate numbered section per drug — list ALL pairs flat\n"
-        "- Use conversation history when relevant\n"
-        "- Respond in the same language the patient used\n"
-        "- Maintain consistency with previous answers"
-    )
 
-    diseases        = ", ".join(patient_data.get("ChronicDiseases", []))   or "None recorded"
-    medications     = ", ".join(patient_data.get("medications", [])) or "None recorded"
-    surgeries       = ", ".join(patient_data.get("surgerys", []))  or "None recorded"
+# ── Hospitals fetch (cached) ──────────────────────────────────────────────────
+async def fetch_hospitals() -> List[dict]:
+    global _hospital_cache, _hospital_cache_ts
+    now = time.time()
+    if _hospital_cache and (now - _hospital_cache_ts) < _HOSPITAL_TTL:
+        return _hospital_cache
+    if db is None:
+        return []
+    try:
+        hospitals = await db.hospitals.find(
+            {},
+            {"name": 1, "address": 1, "phoneNumber": 1, "hotline": 1, "departments": 1},
+        ).to_list(length=100)
+        _hospital_cache = hospitals
+        _hospital_cache_ts = now
+        return hospitals
+    except Exception as exc:
+        logger.warning("Failed to fetch hospitals: %s", exc)
+        return _hospital_cache  # return stale cache on error rather than empty
+
+
+# ── Language detection ────────────────────────────────────────────────────────
+def _is_arabic(text: str) -> bool:
+    return any("؀" <= c <= "ۿ" for c in text)
+
+
+# ── Prompt builder ────────────────────────────────────────────────────────────
+def build_messages(patient_data: dict, history: List[dict], question: str, hospitals: List[dict] = []) -> List[dict]:
+    arabic = _is_arabic(question)
+
+    if arabic:
+        system = (
+            "أنت مساعد طبي ذكي بتتكلم باللهجة المصرية البسيطة.\n"
+            "هدفك إنك تشرح لأي مريض أي معلومة طبية بطريقة سهلة وودودة.\n\n"
+            "قواعد مهمة:\n"
+            "- لازم ردك يكون باللهجة المصرية العامية فقط\n"
+            "- متستخدمش إنجليزي إلا في أسماء الأدوية\n"
+            "- اتكلم بلهجة مصرية طبيعية، مش فصحى تقيلة\n"
+            "- استخدم جمل قصيرة وواضحة وأسلوب friendly\n"
+            "- ابدأ بجملة طبيعية (زي: بص، خليني أوضح لك، طبعاً)\n"
+            "- ابعد عن المصطلحات الطبية المعقدة إلا لو ضروري\n"
+            "- متشخصش المرض بشكل نهائي ومتوصفش أدوية بجرعات\n"
+            "- انصح بزيارة دكتور بس لو في خطر حقيقي أو الحالة مش واضحة\n"
+            "- لو سألك عن تفاعل دوائي استخدم الفورمات ده (سطر لكل زوج):\n"
+            "    🔴 عالي | دواء أ + دواء ب — سبب في جملة واحدة\n"
+            "    🟠 متوسط | دواء أ + دواء ب — سبب في جملة واحدة\n"
+            "    🟡 بسيط | دواء أ + دواء ب — سبب في جملة واحدة\n"
+            "    ✅ مفيش تفاعل | دواء أ + دواء ب\n"
+            "- متكررش 'راجع دكتور' بعد كل سطر، قولها مرة واحدة في الآخر بس لو في خطر\n"
+            "- خليك مختصر (80–120 كلمة)\n"
+            "- متفضحش بيانات الطوارئ أو أي بيانات شخصية حساسة\n"
+            "- عندك قائمة بكل المستشفيات في النظام مع عناوينها — استخدمها لو سألك عنها\n"
+            "- لو سألك عن أقرب مستشفى واديتلك موقعه، قارن موقعه بعناوين المستشفيات وقوله الأقرب\n"
+            "- لو سألك عن أقرب مستشفى من غير ما يقولك موقعه، اسأله هو بيه دلوقتي\n"
+        )
+    else:
+        system = (
+            "You are a smart medical assistant. Communicate in clear, friendly, plain English.\n\n"
+            "Rules:\n"
+            "- ALWAYS reply in English only — never use Arabic under any circumstance\n"
+            "- Use short, clear sentences and a warm, approachable tone\n"
+            "- Avoid complex medical jargon unless necessary\n"
+            "- Do not give a definitive diagnosis or prescribe specific dosages\n"
+            "- Recommend seeing a doctor only if there is a real risk or the situation is unclear\n"
+            "- For drug interaction questions use this format (one line per pair):\n"
+            "    🔴 High | Drug A + Drug B — reason in one sentence\n"
+            "    🟠 Moderate | Drug A + Drug B — reason in one sentence\n"
+            "    🟡 Minor | Drug A + Drug B — reason in one sentence\n"
+            "    ✅ No interaction | Drug A + Drug B\n"
+            "- Don't repeat 'see a doctor' after every line — say it once at the end only if there's risk\n"
+            "- Keep responses concise (80–120 words)\n"
+            "- Never reveal emergency contacts or sensitive personal data\n"
+            "- You have a list of all hospitals in the system with their addresses — use it when asked\n"
+            "- If asked about the nearest hospital and given a location, compare it to hospital addresses and name the closest one\n"
+            "- If asked about the nearest hospital without a location, ask where the patient is now\n"
+        )
+
+    none_val   = "لا يوجد" if arabic else "None"
+    unknown    = "غير معروف" if arabic else "Unknown"
+    no_history = "  لا يوجد" if arabic else "  None"
+    no_chat    = "لا يوجد" if arabic else "None"
+
+    diseases        = "، ".join(patient_data.get("ChronicDiseases", [])) or none_val
+    medications     = "، ".join(patient_data.get("medications", []))     or none_val
+    surgeries       = "، ".join(patient_data.get("surgerys", []))        or none_val
     medical_history = "\n".join(
         f"  - {h}" for h in patient_data.get("medical_history", [])
-    ) or "  None recorded"
+    ) or no_history
 
     chat_lines = []
     for turn in (history or [])[-10:]:
@@ -450,26 +506,82 @@ def build_messages(patient_data: dict, history: List[dict], question: str) -> Li
         content = turn.get("content", "")
         if role in ("user", "assistant") and content:
             chat_lines.append(f"{role.capitalize()}: {content}")
-    chat_history = "\n".join(chat_lines) or "No previous messages"
+    chat_history = "\n".join(chat_lines) or no_chat
 
-    user_content = (
-        f"Patient Data:\n"
-        f"Name: {patient_data.get('name', 'Unknown')}\n"
-        f"Age: {patient_data.get('age', 'Unknown')}\n"
-        f"Blood Type: {patient_data.get('blood_type', 'Unknown')}\n"
-        f"Diseases: {diseases}\n"
-        f"Medications: {medications}\n"
-        f"Surgeries: {surgeries}\n"
-        f"History:\n{medical_history}\n\n"
-        f"Chat History:\n{chat_history}\n\n"
-        f"Question:\n{question}\n\n"
-        f"Answer:"
+    def _fmt_hospital(h: dict) -> str:
+        line = f"  - {h.get('name', '?')}: {h.get('address', 'N/A')}"
+        if h.get('phoneNumber'):
+            line += f" | {h['phoneNumber']}"
+        if h.get('hotline'):
+            line += f" | طوارئ: {h['hotline']}"
+        depts = h.get('departments', [])
+        if depts:
+            dept_names = ", ".join(
+                d.get('name', '') for d in depts if d.get('name')
+            )
+            if dept_names:
+                line += f"\n      الأقسام: {dept_names}"
+        return line
+
+    hosp_lines = "\n".join(_fmt_hospital(h) for h in hospitals) \
+        or ("  لا يوجد مستشفيات مسجلة" if arabic else "  No hospitals registered")
+
+    if arabic:
+        user_content = (
+            f"بيانات المريض:\n"
+            f"الاسم: {patient_data.get('name', unknown)}\n"
+            f"العمر: {patient_data.get('age', unknown)}\n"
+            f"فصيلة الدم: {patient_data.get('blood_type', unknown)}\n"
+            f"الأمراض المزمنة: {diseases}\n"
+            f"الأدوية الحالية: {medications}\n"
+            f"العمليات: {surgeries}\n"
+            f"السجل الطبي:\n{medical_history}\n\n"
+            f"المستشفيات في النظام:\n{hosp_lines}\n\n"
+            f"سجل المحادثة:\n{chat_history}\n\n"
+            f"سؤال المريض:\n{question}\n\n"
+            f"الرد:"
+        )
+        examples = [
+            {"role": "user", "content": "عندي صداع بقاله يومين"},
+            {"role": "assistant", "content": (
+                "بص، الصداع ممكن يكون من كذا سبب زي قلة النوم أو الجفاف أو الضغط النفسي.\n\n"
+                "جرب:\n"
+                "- تشرب مية كتير\n"
+                "- ترتاح شوية وتبعد عن الشاشات\n"
+                "- تاخد مسكن بسيط زي البنادول\n\n"
+                "لو الصداع شديد أو مستمر أكتر من كده، ساعتها الأفضل تعمل كشف."
+            )},
+        ]
+    else:
+        user_content = (
+            f"Patient Data:\n"
+            f"Name: {patient_data.get('name', unknown)}\n"
+            f"Age: {patient_data.get('age', unknown)}\n"
+            f"Blood Type: {patient_data.get('blood_type', unknown)}\n"
+            f"Chronic Diseases: {diseases}\n"
+            f"Current Medications: {medications}\n"
+            f"Surgeries: {surgeries}\n"
+            f"Medical History:\n{medical_history}\n\n"
+            f"Hospitals in System:\n{hosp_lines}\n\n"
+            f"Chat History:\n{chat_history}\n\n"
+            f"Patient Question:\n{question}\n\n"
+            f"Answer:"
+        )
+        examples = [
+            {"role": "user", "content": "What are the symptoms of diabetes?"},
+            {"role": "assistant", "content": (
+                "Common symptoms of diabetes include frequent urination, excessive thirst, "
+                "unexplained weight loss, fatigue, and blurred vision.\n\n"
+                "If you're experiencing several of these, it's worth getting a blood sugar test."
+            )},
+        ]
+
+    return (
+        [{"role": "system", "content": system}]
+        + examples
+        + [{"role": "user", "content": user_content}]
     )
 
-    return [
-        {"role": "system", "content": system},
-        {"role": "user",   "content": user_content},
-    ]
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 @app.post("/chat", response_model=ChatResponse)
@@ -479,17 +591,13 @@ async def chat(request: ChatRequest):
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    patient_data = await fetch_patient_data(request.patient_id)
-
-    # Load persistent conversation memory from DB; fall back to in-session
-    # history sent by the frontend if the DB has no prior logs yet.
-    db_history = await fetch_chat_history(request.patient_id, limit=5)
+    patient_data, db_history, hospitals = await asyncio.gather(
+        fetch_patient_data(request.patient_id),
+        fetch_chat_history(request.patient_id, limit=5),
+        fetch_hospitals(),
+    )
     history = db_history if db_history else (request.conversation_history or [])
 
-    # ── DDI routing ───────────────────────────────────────────────────────────
-    # When the patient asks about drug interactions, delegate to the specialist
-    # DDI service (main.py / port 8000) which uses FDA + RxNorm + Groq LLM,
-    # then simplify the medical report into plain Arabic before returning it.
     if _DDI_PATTERNS.search(request.message):
         new_drug = await _extract_drug_name(request.message)
         if new_drug:
@@ -508,24 +616,26 @@ async def chat(request: ChatRequest):
                             "ddi_drug":             new_drug,
                             "ddi_severity":         ddi_result.get("severity"),
                             "model":                CHATBOT_GROQ_MODEL,
-                            "created_at":           datetime.utcnow(),
+                            "created_at":           datetime.now(timezone.utc),
                         })
                         await _trim_chat_history(request.patient_id)
                     except Exception as exc:
                         logger.error("Chat log write failed: %s", exc)
                 return ChatResponse(reply=reply, patient_context_used=bool(patient_data))
-            # DDI service unreachable → fall through to normal chatbot
             logger.info("DDI service unavailable — falling back to chatbot for '%s'", new_drug)
 
-    # ── Normal chatbot flow ───────────────────────────────────────────────────
-    messages = build_messages(patient_data, history, request.message)
+    messages = build_messages(patient_data, history, request.message, hospitals)
 
     try:
-        completion = groq_client.chat.completions.create(
-            model=CHATBOT_GROQ_MODEL,
-            messages=messages,
-            temperature=0.3,
-            max_tokens=4096,
+        loop = asyncio.get_running_loop()
+        completion = await loop.run_in_executor(
+            None,
+            lambda: groq_client.chat.completions.create(
+                model=CHATBOT_GROQ_MODEL,
+                messages=messages,
+                temperature=0.5,
+                max_tokens=1024,
+            ),
         )
         reply = completion.choices[0].message.content
     except Exception as e:
@@ -533,7 +643,11 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=502, detail=f"LLM error: {str(e)}")
 
     if _is_unsafe(reply):
-        reply = "Please consult your doctor for this kind of recommendation."
+        reply = (
+            "من فضلك راجع دكتورك لأي توصية من النوع ده."
+            if _is_arabic(request.message)
+            else "Please consult your doctor for recommendations of this nature."
+        )
 
     if db is not None:
         try:
@@ -544,7 +658,7 @@ async def chat(request: ChatRequest):
                 "patient_context_used": bool(patient_data),
                 "ddi_check":            False,
                 "model":                CHATBOT_GROQ_MODEL,
-                "created_at":           datetime.utcnow(),
+                "created_at":           datetime.now(timezone.utc),
             })
             await _trim_chat_history(request.patient_id)
         except Exception as e:
@@ -557,20 +671,84 @@ async def chat(request: ChatRequest):
 
 
 # ── Speech-to-Text ────────────────────────────────────────────────────────────
+def _to_wav(audio_bytes: bytes) -> bytes:
+    """Convert any browser audio (webm/ogg/mp4) to 16 kHz mono WAV via ffmpeg."""
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-i", tmp_path,
+             "-ar", "16000", "-ac", "1", "-f", "wav", "pipe:1"],
+            capture_output=True, timeout=30,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg: {proc.stderr.decode(errors='replace')[:200]}")
+        return proc.stdout
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def _speechmatics_transcribe(audio_bytes: bytes, filename: str) -> str:
+    """Convert audio to WAV, submit to Speechmatics batch API, poll for transcript."""
+    wav_bytes = _to_wav(audio_bytes)
+
+    headers = {"Authorization": f"Bearer {SPEECHMATICS_API_KEY}"}
+
+    config = {
+        "type": "transcription",
+        "transcription_config": {
+            "language": "auto",
+            "operating_point": "enhanced",
+            "diarization": "none",
+        },
+    }
+
+    submit_resp = _req.post(
+        f"{SPEECHMATICS_URL}/jobs",
+        headers=headers,
+        data={"config": json.dumps(config)},
+        files={"data_file": ("recording.wav", wav_bytes, "audio/wav")},
+        timeout=30,
+    )
+    if not submit_resp.ok:
+        raise RuntimeError(f"Speechmatics submit failed: {submit_resp.status_code} {submit_resp.text[:200]}")
+
+    job_id = submit_resp.json()["id"]
+    logger.info("Speechmatics job submitted — id: %s", job_id)
+
+    for _ in range(30):
+        time.sleep(2)
+        status_resp = _req.get(
+            f"{SPEECHMATICS_URL}/jobs/{job_id}",
+            headers=headers,
+            timeout=10,
+        )
+        status = status_resp.json().get("job", {}).get("status", "")
+        if status == "done":
+            break
+        if status in ("rejected", "deleted"):
+            raise RuntimeError(f"Speechmatics job {status}: {status_resp.text[:200]}")
+
+    transcript_resp = _req.get(
+        f"{SPEECHMATICS_URL}/jobs/{job_id}/transcript",
+        headers=headers,
+        params={"format": "txt"},
+        timeout=15,
+    )
+    if not transcript_resp.ok:
+        raise RuntimeError(f"Speechmatics transcript fetch failed: {transcript_resp.status_code}")
+
+    return transcript_resp.content.decode("utf-8").strip()
+
+
 @app.post("/speech-to-text")
 async def speech_to_text(audio: UploadFile = File(...)):
-    """
-    Transcribe audio via Groq Whisper Large v3 — strongest free multilingual ASR.
-
-    Model  : whisper-large-v3 (7,200 sec/day free — https://console.groq.com)
-    Accepts: audio/webm, audio/ogg, audio/wav, audio/mp4, audio/mpeg
-    Returns: { "text": "..." }
-    """
-    if stt_client is None:
-        raise HTTPException(
-            status_code=503,
-            detail="GROQ_STT_API_KEY is not set. Get a free key at https://console.groq.com",
-        )
+    if not SPEECHMATICS_API_KEY:
+        raise HTTPException(status_code=503, detail="SPEECHMATICS_API_KEY not configured")
 
     audio_bytes = await audio.read()
     if len(audio_bytes) < 1000:
@@ -579,62 +757,12 @@ async def speech_to_text(audio: UploadFile = File(...)):
             detail="Recording too short — please speak for at least one second.",
         )
 
-    filename = audio.filename or "recording.webm"
-    content_type = audio.content_type or "audio/webm"
-
-    def _transcribe(lang: str):
-        return stt_client.audio.transcriptions.create(
-            file=(filename, audio_bytes, content_type),
-            model="whisper-large-v3",
-            language=lang,
-            response_format="verbose_json",
-            temperature=0,
-        )
-
-    def _avg_logprob(result) -> float:
-        segs = getattr(result, "segments", None) or []
-        if not segs:
-            return -2.0
-        logprobs = []
-        for s in segs:
-            # segments may be dicts OR Pydantic objects depending on SDK version
-            lp = s.get("avg_logprob") if isinstance(s, dict) else getattr(s, "avg_logprob", None)
-            if lp is not None:
-                logprobs.append(lp)
-        return sum(logprobs) / len(logprobs) if logprobs else -2.0
-
-    def _arabic_ratio(text: str) -> float:
-        chars = [c for c in text if c.strip()]
-        if not chars:
-            return 0.0
-        arabic = sum(1 for c in chars if "؀" <= c <= "ۿ")
-        return arabic / len(chars)
-
     try:
+        filename = audio.filename or "recording.webm"
         loop = asyncio.get_running_loop()
-        en_result, ar_result = await asyncio.gather(
-            loop.run_in_executor(None, lambda: _transcribe("en")),
-            loop.run_in_executor(None, lambda: _transcribe("ar")),
+        text = await loop.run_in_executor(
+            None, _speechmatics_transcribe, audio_bytes, filename
         )
-
-        en_conf = _avg_logprob(en_result)
-        ar_conf = _avg_logprob(ar_result)
-        en_text = (en_result.text or "").strip()
-        ar_text = (ar_result.text or "").strip()
-
-        # If confidence scores are too close, use character script as tiebreaker:
-        # real Arabic → mostly Arabic chars; real English → mostly Latin chars.
-        # This also handles code-switching: dominant script wins.
-        if abs(en_conf - ar_conf) < 0.15:
-            ar_ratio = _arabic_ratio(ar_text)
-            if ar_ratio > 0.5:
-                text, detected_language = ar_text, "ar"
-            else:
-                text, detected_language = en_text, "en"
-        elif en_conf >= ar_conf:
-            text, detected_language = en_text, "en"
-        else:
-            text, detected_language = ar_text, "ar"
 
         if not text:
             raise HTTPException(
@@ -642,8 +770,8 @@ async def speech_to_text(audio: UploadFile = File(...)):
                 detail="No speech detected. Please speak clearly and try again.",
             )
 
-        logger.info("STT [lang=%s en=%.2f ar=%.2f]: %s", detected_language, en_conf, ar_conf, text[:120])
-        return {"text": text, "language": detected_language}
+        logger.info("STT: %s", text[:120])
+        return {"text": text}
 
     except HTTPException:
         raise
@@ -659,6 +787,8 @@ async def health():
         "service":   "patient-chatbot",
         "port":      8001,
         "llm_ready": groq_client is not None,
+        "stt_ready": bool(SPEECHMATICS_API_KEY),
+        "stt_provider": "Speechmatics",
         "db_ready":  db is not None,
     }
 

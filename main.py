@@ -28,7 +28,7 @@ load_dotenv()
 
 # ==================== MONGODB SETUP ====================
 # MongoDB connection
-MONGODB_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/nfc-healthcare")
+MONGODB_URI = os.getenv("MONGO_URI", "mongodb+srv://bodytarek2003_db_user:bPzJxGCug6LhNKxl@cluster0.qkbfket.mongodb.net/nfc-healthcare?appName=Cluster0")
 mongo_client = None
 db = None
 

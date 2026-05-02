@@ -12,7 +12,11 @@
       "WebFetch(domain:build.nvidia.com)",
       "WebFetch(domain:catalog.ngc.nvidia.com)",
       "Bash(python -c ' *)",
-      "WebFetch(domain:console.groq.com)"
+      "WebFetch(domain:console.groq.com)",
+      "Bash(npx tsc *)",
+      "Bash(node -e ' *)",
+      "Bash(python3 *)",
+      "Bash(python *)"
     ]
   }
 }

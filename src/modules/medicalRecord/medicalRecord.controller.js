@@ -105,36 +105,6 @@ export const addMedicalRecord = async (req, res, next) => {
     return next(new AppError(messages.medicalRecord.failToCreate, 500));
   }
 
-  // Persist each per-medication DDI result to conflict_analyses
-  if (rawConflictResults) {
-    const patientAge = patientExists.dateOfBirth
-      ? Math.floor((Date.now() - new Date(patientExists.dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
-      : undefined;
-    const docs = rawConflictResults
-      .filter(r => r.analysis && r.medication)
-      .map(r => ({
-        patient_id: patientId.toString(),
-        patient_name: `${patientExists.firstName} ${patientExists.lastName}`,
-        patient_age: patientAge,
-        doctor_id: doctorId.toString(),
-        record_id: createdRecord._id.toString(),
-        new_treatment: r.medication,
-        analysis: {
-          has_conflict: r.analysis.has_conflict || false,
-          severity: r.analysis.severity || 'none',
-          analysis: r.analysis.analysis || '',
-          recommendations: r.analysis.recommendations || [],
-          interactions: r.analysis.interactions || [],
-        },
-        created_at: new Date(),
-      }));
-    if (docs.length > 0) {
-      ConflictAnalysis.insertMany(docs, { ordered: false }).catch(err =>
-        console.error('Failed to persist conflict analyses:', err.message)
-      );
-    }
-  }
-
   return res.status(201).json({
     success: true,
     message: messages.medicalRecord.created,
@@ -195,100 +165,14 @@ export const updateMedicalRecord = async (req, res, next) => {
   // Update fields if provided
   if (diagnosis) record.diagnosis = diagnosis;
   if (treatment) record.treatment = treatment;
-  let rawUpdateConflictResults = null;
   if (medications) {
     record.medications = medications;
-
-    // Re-run AI conflict check since medications changed
-    try {
-      const patientForAI = await Patient.findById(record.patientId);
-      if (patientForAI && medications.length > 0) {
-        const conflictResults = await checkMultipleDrugConflicts(patientForAI, medications);
-        rawUpdateConflictResults = conflictResults;
-
-        let mostSevereConflict = null;
-        let maxSeverity = 'none';
-        const severityLevels = { none: 0, low: 1, moderate: 2, high: 3, critical: 4, unknown: 0 };
-
-        for (const result of conflictResults) {
-          if (result.analysis && result.analysis.severity) {
-            const currentLevel = severityLevels[result.analysis.severity] || 0;
-            if (currentLevel > (severityLevels[maxSeverity] || 0)) {
-              maxSeverity = result.analysis.severity;
-              mostSevereConflict = result.analysis;
-            }
-          }
-        }
-
-        record.aiAnalysis = mostSevereConflict
-          ? {
-              hasConflict: mostSevereConflict.has_conflict || false,
-              severity: mostSevereConflict.severity || 'none',
-              analysis: mostSevereConflict.analysis || '',
-              recommendations: mostSevereConflict.recommendations || [],
-              interactions: mostSevereConflict.interactions || [],
-              checkedAt: new Date(),
-              serviceAvailable: conflictResults[0]?.success !== false,
-            }
-          : {
-              hasConflict: false,
-              severity: 'none',
-              analysis: '',
-              recommendations: [],
-              interactions: [],
-              checkedAt: new Date(),
-              serviceAvailable: true,
-            };
-      }
-    } catch (error) {
-      console.error('AI conflict re-check failed on update:', error);
-      record.aiAnalysis = {
-        hasConflict: false,
-        severity: 'unknown',
-        analysis: 'AI conflict check was unavailable during record update.',
-        recommendations: ['Manually verify drug interactions'],
-        interactions: [],
-        checkedAt: new Date(),
-        serviceAvailable: false,
-      };
-    }
   }
 
   // Save updated record
   const updatedRecord = await record.save();
   if (!updatedRecord) {
     return next(new AppError(messages.medicalRecord.failToUpdate, 500));
-  }
-
-  // Persist each per-medication DDI result to conflict_analyses
-  if (rawUpdateConflictResults) {
-    const patientForAge = await Patient.findById(updatedRecord.patientId).select('firstName lastName dateOfBirth').lean().catch(() => null);
-    const patientAge = patientForAge?.dateOfBirth
-      ? Math.floor((Date.now() - new Date(patientForAge.dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
-      : undefined;
-    const docs = rawUpdateConflictResults
-      .filter(r => r.analysis && r.medication)
-      .map(r => ({
-        patient_id: updatedRecord.patientId.toString(),
-        patient_name: patientForAge ? `${patientForAge.firstName} ${patientForAge.lastName}` : undefined,
-        patient_age: patientAge,
-        doctor_id: doctorId.toString(),
-        record_id: updatedRecord._id.toString(),
-        new_treatment: r.medication,
-        analysis: {
-          has_conflict: r.analysis.has_conflict || false,
-          severity: r.analysis.severity || 'none',
-          analysis: r.analysis.analysis || '',
-          recommendations: r.analysis.recommendations || [],
-          interactions: r.analysis.interactions || [],
-        },
-        created_at: new Date(),
-      }));
-    if (docs.length > 0) {
-      ConflictAnalysis.insertMany(docs, { ordered: false }).catch(err =>
-        console.error('Failed to persist conflict analyses on update:', err.message)
-      );
-    }
   }
 
   return res.status(200).json({

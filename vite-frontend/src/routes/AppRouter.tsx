@@ -12,6 +12,7 @@ import StaffManagement from '@/pages/admin_hospital/StaffManagement'
 import FacilityManagement from '@/pages/admin/FacilityManagement'
 import ProfilePage from '@/pages/profile/ProfilePage'
 import VerifyAccountPage from '@/pages/auth/VerifyAccountPage'
+import PharmacistDashboard from '@/pages/pharmacist/PharmacistDashboard'
 
 export default function AppRouter() {
   return (
@@ -81,9 +82,20 @@ export default function AppRouter() {
         <Route
           path="/profile"
           element={
-            <ProtectedRoute allowedRoles={['patient', 'doctor', 'receptionist', 'admin_hospital', 'admin']}>
+            <ProtectedRoute allowedRoles={['patient', 'doctor', 'receptionist', 'admin_hospital', 'admin', 'pharmacist']}>
               <DashboardLayout>
                 <ProfilePage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/pharmacist/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={['pharmacist']}>
+              <DashboardLayout>
+                <PharmacistDashboard />
               </DashboardLayout>
             </ProtectedRoute>
           }

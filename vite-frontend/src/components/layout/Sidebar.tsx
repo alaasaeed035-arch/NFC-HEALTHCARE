@@ -14,6 +14,8 @@ import {
   LogOut,
   Activity,
   UserCog,
+  Package,
+  FlaskConical,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import type { Role } from '@/types'
@@ -41,7 +43,9 @@ const NAV_ITEMS: Record<Role, NavItem[]> = {
   admin_hospital: [
     { label: 'Staff Dashboard', to: '/admin-hospital/staff', icon: LayoutDashboard },
     { label: 'Receptionists', to: '/admin-hospital/staff#receptionists', icon: UserCog },
+    { label: 'Pharmacists', to: '/admin-hospital/staff#pharmacists', icon: FlaskConical },
     { label: 'Doctors', to: '/admin-hospital/staff#doctors', icon: Stethoscope },
+    { label: 'Patients', to: '/admin-hospital/staff#patients', icon: Users },
   ],
   admin: [
     { label: 'Overview', to: '/admin/facilities#overview', icon: LayoutDashboard },
@@ -49,6 +53,11 @@ const NAV_ITEMS: Record<Role, NavItem[]> = {
     { label: 'Hospital Admins', to: '/admin/facilities#admins', icon: UserCog },
   ],
   super_admin: [],
+  pharmacist: [
+    { label: 'Inventory', to: '/pharmacist/dashboard#inventory', icon: Package },
+    { label: 'Dispense', to: '/pharmacist/dashboard#dispense', icon: ClipboardList },
+    { label: 'History', to: '/pharmacist/dashboard#history', icon: FileText },
+  ],
 }
 
 const ROLE_LABELS: Record<Role, string> = {
@@ -58,6 +67,7 @@ const ROLE_LABELS: Record<Role, string> = {
   admin_hospital: 'Hospital Admin',
   admin: 'Administrator',
   super_admin: 'Super Admin',
+  pharmacist: 'Pharmacist',
 }
 
 interface SidebarProps {

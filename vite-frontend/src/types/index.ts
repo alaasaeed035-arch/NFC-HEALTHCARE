@@ -1,4 +1,4 @@
-export type Role = 'super_admin' | 'admin' | 'admin_hospital' | 'receptionist' | 'doctor' | 'patient'
+export type Role = 'super_admin' | 'admin' | 'admin_hospital' | 'receptionist' | 'doctor' | 'patient' | 'pharmacist'
 
 export interface AuthUser {
   _id: string
@@ -138,4 +138,43 @@ export interface ApiResponse<T> {
   message?: string
   count?: number
   total?: number
+}
+
+export interface PharmacyInventoryItem {
+  _id: string
+  hospitalId: string
+  name: string
+  genericName?: string
+  dosageForms?: string[]
+  quantityInStock: number
+  unit?: string
+  manufacturer?: string
+  expiryDate?: string
+  lowStockThreshold: number
+  isActive: boolean
+  createdBy?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PrescriptionMedItem {
+  inventoryItemId?: string | PharmacyInventoryItem
+  name?: string
+  dosage?: string
+  frequency?: string
+  duration?: string
+}
+
+export interface Prescription {
+  _id: string
+  patientId: Patient | string
+  doctorId: Doctor | string
+  hospitalId: Hospital | string
+  medications: PrescriptionMedItem[]
+  status: 'pending_pickup' | 'dispensed' | 'cancelled'
+  dispensedBy?: { _id: string; fullName: string; email: string } | string
+  dispensedAt?: string
+  notes?: string
+  createdAt: string
+  updatedAt: string
 }

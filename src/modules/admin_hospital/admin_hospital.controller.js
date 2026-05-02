@@ -8,13 +8,12 @@ import { generateOTP, sendOTP } from "../../utils/OTP.js";
 
 // Create Receptionist (by ADMIN_HOSPITAL, ADMIN, or SUPER_ADMIN)
 export const createReceptionist = async (req, res, next) => {
-  const { firstName, lastName, email, phoneNumber, password } = req.body;
+  const { firstName, lastName, email, password } = req.body;
+  const phoneNumber = req.body.phoneNumber || undefined;
   const fullName = `${firstName ?? ''} ${lastName ?? ''}`.trim();
 
-  // admin hospital from auth middleware
   const adminHospital = req.authUser;
 
-  // check duplicate email or phone
   const exist = await User.findOne({
     $or: [{ email }, ...(phoneNumber ? [{ phoneNumber }] : [])],
   });
@@ -22,35 +21,36 @@ export const createReceptionist = async (req, res, next) => {
     return next(new AppError(messages.user.alreadyExist, 409));
   }
 
-  // hash password
   const hashedPassword = bcrypt.hashSync(password, 8);
 
-  // create receptionist (unverified until OTP confirmed)
   const receptionist = new User({
     fullName,
     email,
-    phoneNumber,
+    ...(phoneNumber ? { phoneNumber } : {}),
     password: hashedPassword,
     role: roles.RECEPTIONIST,
     hospitalId: adminHospital.hospitalId,
     isVerified: false,
   });
 
-  const created = await receptionist.save();
-  if (!created) {
+  let created;
+  try {
+    created = await receptionist.save();
+  } catch (dbErr) {
+    if (dbErr.code === 11000) {
+      const field = Object.keys(dbErr.keyPattern ?? {})[0] ?? 'field';
+      return next(new AppError(`A user with this ${field} already exists`, 409));
+    }
     return next(new AppError(messages.user.failToCreate, 500));
   }
 
-  // generate OTP and persist it
   const otp = generateOTP();
   created.otp = otp;
-  created.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+  created.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
   await created.save();
 
-  // send OTP email (fire-and-forget)
   sendOTP(email, otp).catch(err => console.error('OTP email failed:', err));
 
-  // scrub sensitive fields from response
   created.password = undefined;
   created.otp = undefined;
   created.otpExpires = undefined;
@@ -345,6 +345,145 @@ export const resendReceptionistOtp = async (req, res, next) => {
   });
 };
 
+
+// ── PHARMACIST CRUD (mirrors receptionist pattern) ────────────────────────
+
+// Create Pharmacist (by ADMIN_HOSPITAL)
+export const createPharmacist = async (req, res, next) => {
+  const { firstName, lastName, email, password } = req.body;
+  const phoneNumber = req.body.phoneNumber || undefined;
+  const fullName = `${firstName ?? ''} ${lastName ?? ''}`.trim();
+  const adminHospital = req.authUser;
+
+  const exist = await User.findOne({
+    $or: [{ email }, ...(phoneNumber ? [{ phoneNumber }] : [])],
+  });
+  if (exist) return next(new AppError(messages.user.alreadyExist, 409));
+
+  const hashedPassword = bcrypt.hashSync(password, 8);
+
+  const pharmacist = new User({
+    fullName,
+    email,
+    ...(phoneNumber ? { phoneNumber } : {}),
+    password: hashedPassword,
+    role: roles.PHARMACIST,
+    hospitalId: adminHospital.hospitalId,
+    isVerified: false,
+  });
+
+  let created;
+  try {
+    created = await pharmacist.save();
+  } catch (dbErr) {
+    if (dbErr.code === 11000) {
+      const field = Object.keys(dbErr.keyPattern ?? {})[0] ?? 'field';
+      return next(new AppError(`A user with this ${field} already exists`, 409));
+    }
+    return next(new AppError(messages.user.failToCreate, 500));
+  }
+
+  const otp = generateOTP();
+  created.otp = otp;
+  created.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+  await created.save();
+
+  sendOTP(email, otp).catch(err => console.error('Pharmacist OTP email failed:', err));
+
+  created.password = undefined;
+  created.otp = undefined;
+  created.otpExpires = undefined;
+
+  return res.status(201).json({ message: messages.user.created, success: true, data: created });
+};
+
+// Get all pharmacists for this hospital
+export const getAllPharmacists = async (req, res, next) => {
+  const adminHospital = req.authUser;
+
+  const pharmacists = await User.find({
+    role: roles.PHARMACIST,
+    hospitalId: adminHospital.hospitalId,
+  }).select('-password');
+
+  const data = pharmacists.map(p => {
+    const obj = p.toObject();
+    const parts = (obj.fullName || '').trim().split(/\s+/);
+    obj.firstName = parts[0] || '';
+    obj.lastName = parts.slice(1).join(' ') || '';
+    return obj;
+  });
+
+  return res.status(200).json({
+    message: messages.user.fetchedSuccessfully,
+    success: true,
+    count: data.length,
+    data,
+  });
+};
+
+// Verify Pharmacist OTP
+export const verifyPharmacistOtp = async (req, res, next) => {
+  const { pharmacistId, otp } = req.body;
+  const adminHospital = req.authUser;
+
+  const pharmacist = await User.findOne({
+    _id: pharmacistId,
+    role: roles.PHARMACIST,
+    hospitalId: adminHospital.hospitalId,
+  });
+  if (!pharmacist) return next(new AppError(messages.user.notExist, 404));
+  if (pharmacist.isVerified) return next(new AppError(messages.user.alreadyVerified, 400));
+  if (String(pharmacist.otp) !== String(otp) || Date.now() > pharmacist.otpExpires) {
+    return next(new AppError(messages.user.invalidOTP, 400));
+  }
+
+  pharmacist.isVerified = true;
+  pharmacist.otp = undefined;
+  pharmacist.otpExpires = undefined;
+  await pharmacist.save();
+
+  return res.status(200).json({ message: messages.user.verified, success: true });
+};
+
+// Resend OTP to Pharmacist
+export const resendPharmacistOtp = async (req, res, next) => {
+  const { pharmacistId } = req.body;
+  const adminHospital = req.authUser;
+
+  const pharmacist = await User.findOne({
+    _id: pharmacistId,
+    role: roles.PHARMACIST,
+    hospitalId: adminHospital.hospitalId,
+  });
+  if (!pharmacist) return next(new AppError(messages.user.notExist, 404));
+  if (pharmacist.isVerified) return next(new AppError(messages.user.alreadyVerified, 400));
+
+  const otp = generateOTP();
+  pharmacist.otp = otp;
+  pharmacist.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+  await pharmacist.save();
+
+  sendOTP(pharmacist.email, otp).catch(err => console.error('Pharmacist OTP resend failed:', err));
+
+  return res.status(200).json({ message: messages.user.otpSent, success: true });
+};
+
+// Delete Pharmacist
+export const deletePharmacist = async (req, res, next) => {
+  const { pharmacistId } = req.params;
+  const adminHospital = req.authUser;
+
+  const pharmacist = await User.findById(pharmacistId);
+  if (!pharmacist) return next(new AppError(messages.user.notExist, 404));
+  if (pharmacist.role !== roles.PHARMACIST) return next(new AppError(messages.user.unauthorized, 403));
+  if (!pharmacist.hospitalId || pharmacist.hospitalId.toString() !== adminHospital.hospitalId.toString()) {
+    return next(new AppError(messages.user.unauthorized, 403));
+  }
+
+  await pharmacist.deleteOne();
+  return res.status(200).json({ message: messages.user.deleted, success: true });
+};
 
 // Get Admin Hospital Profile
 export const getAdminHospitalProfile = async (req, res, next) => {

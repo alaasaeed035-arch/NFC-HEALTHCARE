@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { UserPlus, Trash2, Users, Stethoscope, LayoutDashboard, UserCog, ShieldAlert, Eye, MapPin, Phone, CreditCard, Contact, Mail, ShieldCheck, Clock } from 'lucide-react'
+import { UserPlus, Trash2, Users, Stethoscope, LayoutDashboard, UserCog, ShieldAlert, Eye, MapPin, Phone, CreditCard, Contact, Mail, ShieldCheck, Clock, Beaker } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -17,29 +17,38 @@ import type { Receptionist, Doctor, Patient, WorkingHours, WeekDay } from '@/typ
 import client from '@/api/client'
 import { useToast } from '@/components/ui/Toast'
 
-interface ReceptionistForm {
+interface StaffForm {
   firstName: string; lastName: string; email: string; password: string; phoneNumber: string
 }
+
+// Re-use the same shape for both receptionist and pharmacist
+type ReceptionistForm = StaffForm
 
 export default function StaffManagement() {
   const location = useLocation()
   const navigate = useNavigate()
-  const VALID_TABS = ['overview', 'receptionists', 'doctors', 'patients']
+  const VALID_TABS = ['overview', 'receptionists', 'pharmacists', 'doctors', 'patients']
   const hashTab = location.hash.replace('#', '')
   const activeTab = VALID_TABS.includes(hashTab) ? hashTab : 'overview'
   const { toast } = useToast()
   const [receptionists, setReceptionists] = useState<Receptionist[]>([])
+  const [pharmacists, setPharmacists] = useState<Receptionist[]>([])
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [patients, setPatients] = useState<Patient[]>([])
   const [loading, setLoading] = useState(true)
+  // createType controls which staff type the dialog creates
+  const [createType, setCreateType] = useState<'receptionist' | 'pharmacist'>('receptionist')
   const [createOpen, setCreateOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [deletePharmacistId, setDeletePharmacistId] = useState<string | null>(null)
+  const [deletingPharmacist, setDeletingPharmacist] = useState(false)
   const [deleteDoctorId, setDeleteDoctorId] = useState<string | null>(null)
   const [deletingDoctor, setDeletingDoctor] = useState(false)
   const [viewPatient, setViewPatient] = useState<Patient | null>(null)
   const [searchPatient, setSearchPatient] = useState('')
   const [otpDialogOpen, setOtpDialogOpen] = useState(false)
+  const [otpType, setOtpType] = useState<'receptionist' | 'pharmacist'>('receptionist')
   const [otpTargetId, setOtpTargetId] = useState<string | null>(null)
   const [otpTargetEmail, setOtpTargetEmail] = useState<string | null>(null)
   const [otpValue, setOtpValue] = useState('')
@@ -95,14 +104,19 @@ export default function StaffManagement() {
   const fetchAll = async () => {
     setLoading(true)
     try {
-      const [rRes, dRes, pRes] = await Promise.allSettled([
+      const [rRes, phRes, dRes, pRes] = await Promise.allSettled([
         client.get('/admin-hospital/receptionists'),
+        client.get('/admin-hospital/pharmacists'),
         client.get('/admin-hospital/doctors'),
         client.get('/admin-hospital/patients'),
       ])
       if (rRes.status === 'fulfilled') {
         const d = rRes.value.data
         setReceptionists(Array.isArray(d) ? d : d.data ?? [])
+      }
+      if (phRes.status === 'fulfilled') {
+        const d = phRes.value.data
+        setPharmacists(Array.isArray(d) ? d : d.data ?? [])
       }
       if (dRes.status === 'fulfilled') {
         const d = dRes.value.data
@@ -132,27 +146,32 @@ export default function StaffManagement() {
     if (!validate()) return
     setSubmitting(true)
     try {
-      const res = await client.post('/admin-hospital/create-receptionist', form)
+      const endpoint = createType === 'pharmacist'
+        ? '/admin-hospital/create-pharmacist'
+        : '/admin-hospital/create-receptionist'
+      const res = await client.post(endpoint, form)
       const created = res.data.data
-      toast({ title: 'Receptionist created. OTP sent to their email.', variant: 'success' })
+      const label = createType === 'pharmacist' ? 'Pharmacist' : 'Receptionist'
+      toast({ title: `${label} created. OTP sent to their email.`, variant: 'success' })
       setCreateOpen(false)
       const createdEmail = form.email
       setForm({ firstName: '', lastName: '', email: '', password: '', phoneNumber: '' })
       fetchAll()
-      // open OTP verification dialog immediately
+      setOtpType(createType)
       setOtpTargetId(created._id)
       setOtpTargetEmail(createdEmail)
       setOtpValue('')
       setOtpDialogOpen(true)
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast({ title: e?.response?.data?.message ?? 'Failed to create receptionist', variant: 'error' })
+      toast({ title: e?.response?.data?.message ?? `Failed to create ${createType}`, variant: 'error' })
     } finally {
       setSubmitting(false)
     }
   }
 
-  const openOtpDialog = (id: string, email: string) => {
+  const openOtpDialog = (id: string, email: string, type: 'receptionist' | 'pharmacist' = 'receptionist') => {
+    setOtpType(type)
     setOtpTargetId(id)
     setOtpTargetEmail(email)
     setOtpValue('')
@@ -163,14 +182,15 @@ export default function StaffManagement() {
     if (otpValue.length !== 6 || !otpTargetId) return
     setVerifyingOtp(true)
     try {
-      await client.post('/admin-hospital/verify-receptionist-otp', {
-        receptionistId: otpTargetId,
-        otp: otpValue,
-      })
-      toast({ title: 'Receptionist verified successfully', variant: 'success' })
-      setReceptionists(prev => prev.map(r =>
-        r._id === otpTargetId ? { ...r, isVerified: true } : r
-      ))
+      if (otpType === 'pharmacist') {
+        await client.post('/admin-hospital/verify-pharmacist-otp', { pharmacistId: otpTargetId, otp: otpValue })
+        toast({ title: 'Pharmacist verified successfully', variant: 'success' })
+        setPharmacists(prev => prev.map(p => p._id === otpTargetId ? { ...p, isVerified: true } : p))
+      } else {
+        await client.post('/admin-hospital/verify-receptionist-otp', { receptionistId: otpTargetId, otp: otpValue })
+        toast({ title: 'Receptionist verified successfully', variant: 'success' })
+        setReceptionists(prev => prev.map(r => r._id === otpTargetId ? { ...r, isVerified: true } : r))
+      }
       setOtpDialogOpen(false)
       setOtpValue('')
       setOtpTargetId(null)
@@ -187,7 +207,11 @@ export default function StaffManagement() {
     if (!otpTargetId) return
     setResendingOtp(true)
     try {
-      await client.post('/admin-hospital/resend-receptionist-otp', { receptionistId: otpTargetId })
+      if (otpType === 'pharmacist') {
+        await client.post('/admin-hospital/resend-pharmacist-otp', { pharmacistId: otpTargetId })
+      } else {
+        await client.post('/admin-hospital/resend-receptionist-otp', { receptionistId: otpTargetId })
+      }
       toast({ title: 'OTP resent to email', variant: 'success' })
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
@@ -210,6 +234,22 @@ export default function StaffManagement() {
       toast({ title: e?.response?.data?.message ?? 'Failed to delete receptionist', variant: 'error' })
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const handleDeletePharmacist = async () => {
+    if (!deletePharmacistId) return
+    setDeletingPharmacist(true)
+    try {
+      await client.delete(`/admin-hospital/pharmacist/${deletePharmacistId}`)
+      toast({ title: 'Pharmacist deleted', variant: 'success' })
+      setPharmacists(prev => prev.filter(p => p._id !== deletePharmacistId))
+      setDeletePharmacistId(null)
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      toast({ title: e?.response?.data?.message ?? 'Failed to delete pharmacist', variant: 'error' })
+    } finally {
+      setDeletingPharmacist(false)
     }
   }
 
@@ -238,6 +278,7 @@ export default function StaffManagement() {
     { label: 'Total Patients', value: patients.length, icon: Users, color: 'bg-blue-50 text-[#0055BB]' },
     { label: 'Total Doctors', value: doctors.length, icon: Stethoscope, color: 'bg-green-50 text-green-600' },
     { label: 'Receptionists', value: receptionists.length, icon: UserCog, color: 'bg-purple-50 text-purple-600' },
+    { label: 'Pharmacists', value: pharmacists.length, icon: Beaker, color: 'bg-teal-50 text-teal-600' },
   ]
 
   return (
@@ -249,6 +290,9 @@ export default function StaffManagement() {
           </TabsTrigger>
           <TabsTrigger value="receptionists">
             <UserCog className="h-4 w-4 mr-1.5" />Receptionists
+          </TabsTrigger>
+          <TabsTrigger value="pharmacists">
+            <Beaker className="h-4 w-4 mr-1.5" />Pharmacists
           </TabsTrigger>
           <TabsTrigger value="doctors">
             <Stethoscope className="h-4 w-4 mr-1.5" />Doctors
@@ -337,7 +381,7 @@ export default function StaffManagement() {
             <CardHeader>
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <CardTitle>Receptionists ({receptionists.length})</CardTitle>
-                <Button onClick={() => setCreateOpen(true)} size="sm">
+                <Button onClick={() => { setCreateType('receptionist'); setCreateOpen(true) }} size="sm">
                   <UserPlus className="h-4 w-4 mr-1.5" />Create Receptionist
                 </Button>
               </div>
@@ -386,7 +430,7 @@ export default function StaffManagement() {
                                 className="text-blue-400 hover:text-blue-600 h-8 w-8"
                                 aria-label="Send OTP"
                                 title="Send verification OTP"
-                                onClick={() => openOtpDialog(r._id, r.email)}
+                                onClick={() => openOtpDialog(r._id, r.email, 'receptionist')}
                               >
                                 <Mail className="h-4 w-4" />
                               </Button>
@@ -397,6 +441,84 @@ export default function StaffManagement() {
                               className="text-red-400 hover:text-red-600 h-8 w-8"
                               aria-label="Delete receptionist"
                               onClick={() => setDeleteId(r._id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Pharmacists Tab */}
+        <TabsContent value="pharmacists">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <CardTitle>Pharmacists ({pharmacists.length})</CardTitle>
+                <Button onClick={() => { setCreateType('pharmacist'); setCreateOpen(true) }} size="sm">
+                  <UserPlus className="h-4 w-4 mr-1.5" />Create Pharmacist
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex justify-center py-8"><Spinner /></div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pharmacists.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-gray-400 py-8">
+                          No pharmacists yet — click "Create Pharmacist" to add one
+                        </TableCell>
+                      </TableRow>
+                    ) : pharmacists.map(p => (
+                      <TableRow key={p._id}>
+                        <TableCell>
+                          <div className="font-medium">{p.firstName} {p.lastName}</div>
+                        </TableCell>
+                        <TableCell className="text-gray-500">{p.email}</TableCell>
+                        <TableCell className="text-gray-500">{(p as unknown as { phoneNumber?: string }).phoneNumber ?? '—'}</TableCell>
+                        <TableCell>
+                          {p.isVerified ? (
+                            <Badge variant="success" className="gap-1">
+                              <ShieldCheck className="h-3 w-3" />Verified
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="gap-1">Pending</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {!p.isVerified && (
+                              <Button
+                                size="icon" variant="ghost"
+                                className="text-blue-400 hover:text-blue-600 h-8 w-8"
+                                title="Send verification OTP"
+                                onClick={() => openOtpDialog(p._id, p.email, 'pharmacist')}
+                              >
+                                <Mail className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button
+                              size="icon" variant="ghost"
+                              className="text-red-400 hover:text-red-600 h-8 w-8"
+                              onClick={() => setDeletePharmacistId(p._id)}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -660,6 +782,16 @@ export default function StaffManagement() {
       />
 
       <ConfirmDialog
+        open={!!deletePharmacistId}
+        onOpenChange={open => { if (!open) setDeletePharmacistId(null) }}
+        title="Delete Pharmacist"
+        description="This will permanently remove the pharmacist from your hospital."
+        confirmLabel="Delete"
+        onConfirm={handleDeletePharmacist}
+        loading={deletingPharmacist}
+      />
+
+      <ConfirmDialog
         open={!!deleteDoctorId}
         onOpenChange={open => { if (!open) setDeleteDoctorId(null) }}
         title="Delete Doctor"
@@ -735,7 +867,7 @@ export default function StaffManagement() {
       >
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Verify Receptionist</DialogTitle>
+            <DialogTitle>Verify {otpType === 'pharmacist' ? 'Pharmacist' : 'Receptionist'}</DialogTitle>
             <DialogDescription>
               An OTP was sent to{' '}
               <span className="font-medium text-gray-800">{otpTargetEmail}</span>.
@@ -778,8 +910,14 @@ export default function StaffManagement() {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Receptionist</DialogTitle>
-            <DialogDescription>Add a new receptionist to your hospital</DialogDescription>
+            <DialogTitle>
+              {createType === 'pharmacist' ? 'Create Pharmacist' : 'Create Receptionist'}
+            </DialogTitle>
+            <DialogDescription>
+              {createType === 'pharmacist'
+                ? 'Add a new pharmacist to your hospital. They will receive an OTP email to verify their account.'
+                : 'Add a new receptionist to your hospital. They will receive an OTP email to verify their account.'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">

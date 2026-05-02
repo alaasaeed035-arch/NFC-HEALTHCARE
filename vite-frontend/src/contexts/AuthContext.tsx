@@ -27,6 +27,7 @@ function getRoleHome(role: Role): string {
     case 'receptionist': return '/receptionist/dashboard'
     case 'admin_hospital': return '/admin-hospital/staff'
     case 'admin': return '/admin/facilities'
+    case 'pharmacist': return '/pharmacist/dashboard'
     default: return '/login'
   }
 }

@@ -67,6 +67,17 @@ export const messages = {
         ...generateMessage('Medical record'),
         cannotUpdate: 'You are not authorized to update this medical record',
         cannotDeleteOthers : 'You are not authorized to delete this medical record',
-    }
-
+    },
+    inventory: {
+        ...generateMessage('Inventory item'),
+        alreadyExist: 'A drug with this name already exists in the hospital inventory',
+        lowStock: 'Low stock items fetched successfully',
+    },
+    prescription: {
+        ...generateMessage('Prescription'),
+        dispensed: 'Prescription dispensed successfully',
+        alreadyDispensed: 'Prescription has already been dispensed',
+        cancelled: 'Cannot dispense a cancelled prescription',
+        insufficientStock: 'Insufficient stock for',
+    },
 }

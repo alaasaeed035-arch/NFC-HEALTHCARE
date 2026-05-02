@@ -6,7 +6,7 @@ export const receptionistHospitalSchema = joi.object({
     firstName : generalFields.name.required(),
     lastName : generalFields.name.required(),
     email : generalFields.email.required(),
-    phoneNumber : generalFields.phoneNumber.optional(),
+    phoneNumber : generalFields.phoneNumber.allow('').optional(),
     password : joi.string().min(6).required(),
     hospitalId : generalFields.objectId.optional(),
 })
@@ -44,4 +44,32 @@ export const verifyReceptionistOtpSchema = joi.object({
 // resend receptionist OTP validation
 export const resendReceptionistOtpSchema = joi.object({
     receptionistId : generalFields.objectId.required(),
+})
+
+// pharmacist creation validation
+export const pharmacistHospitalSchema = joi.object({
+    firstName : generalFields.name.required(),
+    lastName : generalFields.name.required(),
+    email : generalFields.email.required(),
+    phoneNumber : generalFields.phoneNumber.allow('').optional(),
+    password : joi.string().min(6).required(),
+})
+
+// verify pharmacist OTP validation
+export const verifyPharmacistOtpSchema = joi.object({
+    pharmacistId : generalFields.objectId.required(),
+    otp : joi.string().length(6).pattern(/^\d{6}$/).required().messages({
+        'string.length' : 'OTP must be exactly 6 digits',
+        'string.pattern.base' : 'OTP must contain only digits',
+    }),
+})
+
+// resend pharmacist OTP validation
+export const resendPharmacistOtpSchema = joi.object({
+    pharmacistId : generalFields.objectId.required(),
+})
+
+// delete pharmacist validation
+export const deletePharmacistSchema = joi.object({
+    pharmacistId : generalFields.objectId.required(),
 })

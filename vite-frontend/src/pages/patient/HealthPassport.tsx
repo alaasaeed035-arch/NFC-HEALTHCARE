@@ -8,7 +8,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Spinner } from '@/components/ui/Spinner'
-import { SeverityBadge } from '@/components/ddi/SeverityBadge'
 import { DDITable } from '@/components/ddi/DDITable'
 import { useAuth } from '@/hooks/useAuth'
 import type { Patient, MedicalRecord, Hospital, Doctor, Medication } from '@/types'
@@ -22,7 +21,6 @@ export default function HealthPassport() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // per-hospital expanded staff panel
   const [expandedHospital, setExpandedHospital] = useState<string | null>(null)
   const [hospitalDoctors, setHospitalDoctors] = useState<
     Record<string, { doctors: Doctor[]; loading: boolean; loaded: boolean }>
@@ -32,19 +30,19 @@ export default function HealthPassport() {
     const fetchAll = async () => {
       setLoading(true)
       try {
-        const profileRes = await client.get('/auth/me')
-        const recordsRes = await client.get('/medical-record')
+        const profileRes  = await client.get('/auth/me')
+        const recordsRes  = await client.get('/medical-record')
         const hospitalsRes = await client.get('/hospital')
-        
+
         const d = profileRes.data
         setPatient(d.data ?? d)
-        
+
         const r = recordsRes.data
         setRecords(Array.isArray(r) ? r : r.data ?? [])
-        
+
         const h = hospitalsRes.data
         setHospitals(Array.isArray(h) ? h : h.data ?? [])
-      } catch (e) {
+      } catch {
         setError('Failed to load health passport data')
       } finally {
         setLoading(false)
@@ -79,8 +77,8 @@ export default function HealthPassport() {
     r.medications.map(m => ({ ...m, recordDate: r.createdAt }))
   )
 
-  const getDoctor = (doc: Doctor | string) => typeof doc === 'string' ? null : doc
-  const getHospital = (h: Hospital | string) => typeof h === 'string' ? null : h
+  const getDoctor  = (doc: Doctor | string)  => typeof doc === 'string' ? null : doc
+  const getHospital = (h: Hospital | string) => typeof h   === 'string' ? null : h
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -175,7 +173,7 @@ export default function HealthPassport() {
           ) : (
             <div className="space-y-4">
               {records.map(record => {
-                const doc = getDoctor(record.doctorId as Doctor | string)
+                const doc  = getDoctor(record.doctorId as Doctor | string)
                 const hosp = getHospital(record.hospitalId as Hospital | string)
                 return (
                   <Card key={record._id}>
@@ -200,14 +198,9 @@ export default function HealthPassport() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {record.aiAnalysis && (
-                            <SeverityBadge severity={record.aiAnalysis.severity} />
-                          )}
-                          <div className="flex items-center gap-1 text-xs text-gray-400">
-                            <Clock className="h-3 w-3" />
-                            {new Date(record.createdAt).toLocaleDateString()}
-                          </div>
+                        <div className="flex items-center gap-1 text-xs text-gray-400">
+                          <Clock className="h-3 w-3" />
+                          {new Date(record.createdAt).toLocaleDateString()}
                         </div>
                       </div>
                     </CardHeader>
@@ -228,15 +221,6 @@ export default function HealthPassport() {
                               </span>
                             ))}
                           </div>
-                        </div>
-                      )}
-                      {record.aiAnalysis && record.aiAnalysis.hasConflict && (
-                        <div className="mt-3 rounded-lg bg-orange-50 border border-orange-200 p-3">
-                          <div className="flex items-center gap-2 text-orange-700 text-xs font-semibold mb-1">
-                            <AlertTriangle className="h-4 w-4" />
-                            AI Drug Interaction Alert
-                          </div>
-                          <p className="text-xs text-orange-700">{record.aiAnalysis.analysis}</p>
                         </div>
                       )}
                     </CardContent>
@@ -263,12 +247,8 @@ export default function HealthPassport() {
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-gray-900 truncate">{med.name}</p>
                         <p className="text-sm text-gray-500">{med.dosage || med.dose || ''}</p>
-                        {med.duration && (
-                          <p className="text-xs text-gray-400 mt-1">Duration: {med.duration}</p>
-                        )}
-                        {med.notes && (
-                          <p className="text-xs text-gray-400 mt-1">{med.notes}</p>
-                        )}
+                        {med.duration && <p className="text-xs text-gray-400 mt-1">Duration: {med.duration}</p>}
+                        {med.notes && <p className="text-xs text-gray-400 mt-1">{med.notes}</p>}
                         <p className="text-xs text-gray-300 mt-2">
                           {new Date(med.recordDate).toLocaleDateString()}
                         </p>
@@ -303,9 +283,7 @@ export default function HealthPassport() {
           )}
           {patient.ChronicDiseases && patient.ChronicDiseases.length > 0 && (
             <Card className="mt-4">
-              <CardHeader>
-                <CardTitle>Chronic Diseases</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle>Chronic Diseases</CardTitle></CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
                   {patient.ChronicDiseases.map((d, i) => (
@@ -331,18 +309,14 @@ export default function HealthPassport() {
               {hospitals.map(h => {
                 const isExpanded = expandedHospital === h._id
                 const staffState = hospitalDoctors[h._id]
-
-                // group doctors by specialization
                 const grouped: Record<string, Doctor[]> = {}
                 for (const doc of staffState?.doctors ?? []) {
                   const dept = doc.specialization || 'General'
                   ;(grouped[dept] ??= []).push(doc)
                 }
-
                 return (
                   <Card key={h._id} className={isExpanded ? 'border-[#0055BB]/30' : ''}>
                     <CardContent className="pt-5">
-                      {/* Hospital info row */}
                       <div className="flex items-start gap-3">
                         <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50">
                           <Building2 className="h-5 w-5 text-[#0055BB]" />
@@ -380,13 +354,10 @@ export default function HealthPassport() {
                         </button>
                       </div>
 
-                      {/* Expandable staff panel */}
                       {isExpanded && (
                         <div className="mt-4 border-t border-gray-100 pt-4">
                           {staffState?.loading ? (
-                            <div className="flex justify-center py-6">
-                              <Spinner size="sm" />
-                            </div>
+                            <div className="flex justify-center py-6"><Spinner size="sm" /></div>
                           ) : !staffState?.doctors.length ? (
                             <p className="text-sm text-gray-400 text-center py-4">No doctors registered at this hospital</p>
                           ) : (
@@ -436,7 +407,6 @@ export default function HealthPassport() {
             </div>
           )}
         </TabsContent>
-
       </Tabs>
     </div>
   )
