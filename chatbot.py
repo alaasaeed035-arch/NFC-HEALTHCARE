@@ -4,6 +4,7 @@ Flow: patients + medicalrecords → prompt → Gemini LLM → response
 STT: Speechmatics Arabic (enhanced) — best accuracy for Egyptian Arabic dialect
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -28,7 +29,9 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-MONGO_URI               = os.getenv("MONGO_URI", "mongodb+srv://bodytarek2003_db_user:bPzJxGCug6LhNKxl@cluster0.qkbfket.mongodb.net/nfc-healthcare?appName=Cluster0")
+MONGO_URI               = os.getenv("MONGO_URI")
+if not MONGO_URI:
+    logger.warning("MONGO_URI not set — database features will be disabled")
 GEMINI_API_KEY          = os.getenv("GEMINI_API_KEY")
 SPEECHMATICS_API_KEY    = os.getenv("SPEECHMATICS_API_KEY")
 CHATBOT_GROQ_MODEL      = os.getenv("CHATBOT_GROQ_MODEL", "gemini-2.5-flash")
@@ -74,7 +77,14 @@ async def close_mongodb():
         mongo_client.close()
 
 # ── FastAPI ───────────────────────────────────────────────────────────────────
-app = FastAPI(title="NFC Healthcare — Patient Chatbot", version="2.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_mongodb()
+    logger.info("Patient Chatbot started on port 8001")
+    yield
+    await close_mongodb()
+
+app = FastAPI(title="NFC Healthcare — Patient Chatbot", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -791,16 +801,6 @@ async def health():
         "stt_provider": "Speechmatics",
         "db_ready":  db is not None,
     }
-
-# ── Lifecycle ─────────────────────────────────────────────────────────────────
-@app.on_event("startup")
-async def startup():
-    await init_mongodb()
-    logger.info("Patient Chatbot started on port 8001")
-
-@app.on_event("shutdown")
-async def shutdown():
-    await close_mongodb()
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -28,13 +29,17 @@ load_dotenv()
 
 # ==================== MONGODB SETUP ====================
 # MongoDB connection
-MONGODB_URI = os.getenv("MONGO_URI", "mongodb+srv://bodytarek2003_db_user:bPzJxGCug6LhNKxl@cluster0.qkbfket.mongodb.net/nfc-healthcare?appName=Cluster0")
+MONGODB_URI = os.getenv("MONGO_URI")
+if not MONGODB_URI:
+    logger.warning("MONGO_URI not set — MongoDB logging will be disabled")
 mongo_client = None
 db = None
 
 async def init_mongodb():
     """Initialize MongoDB connection and create indexes"""
     global mongo_client, db
+    if not MONGODB_URI:
+        return
     try:
         mongo_client = AsyncIOMotorClient(MONGODB_URI, serverSelectionTimeoutMS=3000)
         db = mongo_client.get_database()
@@ -62,7 +67,15 @@ async def close_mongodb():
         mongo_client.close()
         logger.info("MongoDB connection closed")
 
-app = FastAPI(title="Medical Treatment Conflict Checker")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_mongodb()
+    logger.info("🚀 FastAPI AI Service started")
+    yield
+    await close_mongodb()
+    logger.info("👋 FastAPI AI Service stopped")
+
+app = FastAPI(title="Medical Treatment Conflict Checker", lifespan=lifespan)
 
 # CORS middleware - Allow Node.js backend to access this service
 app.add_middleware(
@@ -378,20 +391,6 @@ Respond in JSON format:
         logger.error(f"Error in /check-conflict: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
-
-# ==================== STARTUP & SHUTDOWN EVENTS ====================
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize MongoDB connection on startup"""
-    await init_mongodb()
-    logger.info("🚀 FastAPI AI Service started")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Close MongoDB connection on shutdown"""
-    await close_mongodb()
-    logger.info("👋 FastAPI AI Service stopped")
 
 # ==================== RUN SERVER ====================
 
