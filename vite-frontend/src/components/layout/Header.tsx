@@ -14,7 +14,6 @@ const ROUTE_TITLES: Record<string, string> = {
   '/receptionist/dashboard': 'Receptionist Portal',
   '/admin-hospital/staff': 'Staff Management',
   '/admin/facilities': 'Facility Management',
-  '/super-admin/overview': 'Global Overview',
 }
 
 export function Header({ onMenuClick }: HeaderProps) {

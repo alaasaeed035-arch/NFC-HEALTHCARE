@@ -7,4 +7,5 @@ import receptionistRouter from "./Receptionist/receptionist.router.js";
 import aiConflictRouter from "./medicalRecord/aiConflict.router.js";
 import chatbotRouter from "./chatbot/chatbot.router.js";
 import ddiRouter from "./ddi/ddi.router.js";
-export { authRouter, adminRouter, hospitalRouter, adminHospitalRouter, medicalRecordRouter, receptionistRouter, aiConflictRouter, chatbotRouter, ddiRouter };
+import pharmacyRouter from "./pharmacy/pharmacy.router.js";
+export { authRouter, adminRouter, hospitalRouter, adminHospitalRouter, medicalRecordRouter, receptionistRouter, aiConflictRouter, chatbotRouter, ddiRouter, pharmacyRouter };

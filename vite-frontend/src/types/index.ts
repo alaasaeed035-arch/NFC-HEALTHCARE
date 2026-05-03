@@ -1,4 +1,4 @@
-export type Role = 'super_admin' | 'admin' | 'admin_hospital' | 'receptionist' | 'doctor' | 'patient'
+export type Role = 'super_admin' | 'admin' | 'admin_hospital' | 'receptionist' | 'doctor' | 'patient' | 'pharmacist'
 
 export interface AuthUser {
   _id: string
@@ -24,10 +24,19 @@ export interface Patient {
   phoneNumber?: string
   address?: string
   emergencyContact?: { name: string; phone: string; relation: string }
+  cardId?: string
   surgerys?: string[]
   ChronicDiseases?: string[]
   role: 'patient'
   createdAt?: string
+}
+
+export type WeekDay = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday'
+
+export interface WorkingHours {
+  day: WeekDay
+  start: string // "08:00"
+  end: string   // "16:00"
 }
 
 export interface Doctor {
@@ -40,6 +49,7 @@ export interface Doctor {
   hospitalId?: string
   role: 'doctor'
   isVerified?: boolean
+  workingHours?: WorkingHours[]
 }
 
 export interface Hospital {
@@ -90,10 +100,10 @@ export type DDISeverity = 'critical' | 'high' | 'moderate' | 'low' | 'none' | 'u
 export interface DDIReport {
   _id: string
   patient_id: string
-  patient_name: string
-  patient_age: number
-  current_medications: { name: string; dosage: string; frequency: string; notes?: string }[]
-  new_treatment: { name: string; dosage: string; frequency: string; notes?: string }
+  patient_name?: string
+  patient_age?: number
+  current_medications?: { name: string; dosage: string; frequency: string; notes?: string }[]
+  new_treatment?: { name: string; dosage: string; frequency: string; notes?: string }
   analysis: {
     has_conflict: boolean
     severity: DDISeverity
@@ -119,6 +129,7 @@ export interface Receptionist {
   email: string
   hospitalId: string
   role: 'receptionist'
+  isVerified?: boolean
 }
 
 export interface ApiResponse<T> {
@@ -127,4 +138,44 @@ export interface ApiResponse<T> {
   message?: string
   count?: number
   total?: number
+}
+
+export interface PharmacyInventoryItem {
+  _id: string
+  hospitalId: string
+  name: string
+  genericName?: string
+  dosageForms?: string[]
+  quantityInStock: number
+  unit?: string
+  manufacturer?: string
+  expiryDate?: string
+  pricePerUnit: number
+  lowStockThreshold: number
+  isActive: boolean
+  createdBy?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PrescriptionMedItem {
+  inventoryItemId?: string | PharmacyInventoryItem
+  name?: string
+  dosage?: string
+  frequency?: string
+  duration?: string
+}
+
+export interface Prescription {
+  _id: string
+  patientId: Patient | string
+  doctorId: Doctor | string
+  hospitalId: Hospital | string
+  medications: PrescriptionMedItem[]
+  status: 'pending_pickup' | 'dispensed' | 'cancelled'
+  dispensedBy?: { _id: string; fullName: string; email: string } | string
+  dispensedAt?: string
+  notes?: string
+  createdAt: string
+  updatedAt: string
 }

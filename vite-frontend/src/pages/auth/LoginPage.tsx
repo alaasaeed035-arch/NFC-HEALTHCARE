@@ -1,13 +1,15 @@
 import React, { useState } from 'react'
 import { Navigate, Link } from 'react-router-dom'
-import { Activity, Eye, EyeOff, AlertCircle, Stethoscope, UserRound } from 'lucide-react'
+import { Activity, Eye, EyeOff, AlertCircle, Stethoscope, UserRound, X, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { getRoleHome } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
+import client from '@/api/client'
 
 type LoginType = 'staff' | 'patient'
+type ForgotStep = 'email' | 'otp' | 'done'
 
 export default function LoginPage() {
   const { login, isAuthenticated, user, loading: authLoading } = useAuth()
@@ -18,9 +20,19 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [failedAttempts, setFailedAttempts] = useState(0)
 
-  // Declarative redirect — renders during commit phase so ProtectedRoute
-  // always sees isAuthenticated=true by the time it renders
+  // Forgot password modal state
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotStep, setForgotStep] = useState<ForgotStep>('email')
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotOtp, setForgotOtp] = useState('')
+  const [forgotNewPassword, setForgotNewPassword] = useState('')
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('')
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotError, setForgotError] = useState('')
+
   if (!authLoading && isAuthenticated && user) {
     return <Navigate to={getRoleHome(user.role)} replace />
   }
@@ -33,19 +45,73 @@ export default function LoginPage() {
       if (!email.trim()) { setError('Please enter your email address'); return }
       if (!password) { setError('Please enter your password'); return }
     } else {
-      if (!nationalId.trim()) { setError('Please enter your National ID'); return }
+      if (!email.trim()) { setError('Please enter your email address'); return }
+      if (!password) { setError('Please enter your password'); return }
     }
 
     setLoading(true)
     try {
       await login({ email, nationalId, password, loginType })
+      setFailedAttempts(0)
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } }; message?: string }
       setError(
         axiosErr?.response?.data?.message ?? axiosErr?.message ?? 'Login failed. Please check your credentials.'
       )
+      setFailedAttempts(n => n + 1)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const openForgot = () => {
+    setForgotEmail(email)
+    setForgotStep('email')
+    setForgotOtp('')
+    setForgotNewPassword('')
+    setForgotConfirmPassword('')
+    setForgotError('')
+    setShowForgot(true)
+  }
+
+  const closeForgot = () => {
+    setShowForgot(false)
+    setForgotError('')
+  }
+
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!forgotEmail.trim()) { setForgotError('Enter your email'); return }
+    setForgotLoading(true); setForgotError('')
+    try {
+      await client.post('/auth/doctor/forget-password', { email: forgotEmail })
+      setForgotStep('otp')
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } }; message?: string }
+      setForgotError(e?.response?.data?.message ?? e?.message ?? 'Failed to send OTP')
+    } finally {
+      setForgotLoading(false)
+    }
+  }
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!forgotOtp.trim()) { setForgotError('Enter the OTP'); return }
+    if (!forgotNewPassword) { setForgotError('Enter a new password'); return }
+    if (forgotNewPassword !== forgotConfirmPassword) { setForgotError('Passwords do not match'); return }
+    setForgotLoading(true); setForgotError('')
+    try {
+      await client.post('/auth/doctor/reset-password', {
+        email: forgotEmail,
+        otp: forgotOtp,
+        newPassword: forgotNewPassword,
+      })
+      setForgotStep('done')
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } }; message?: string }
+      setForgotError(e?.response?.data?.message ?? e?.message ?? 'Failed to reset password')
+    } finally {
+      setForgotLoading(false)
     }
   }
 
@@ -98,7 +164,7 @@ export default function LoginPage() {
             <div className="grid grid-cols-2 gap-2 mb-6 p-1 bg-gray-100 rounded-xl">
               <button
                 type="button"
-                onClick={() => { setLoginType('staff'); setError('') }}
+                onClick={() => { setLoginType('staff'); setError(''); setFailedAttempts(0) }}
                 className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-sm font-medium transition-all ${
                   loginType === 'staff'
                     ? 'bg-white text-[#0055BB] shadow-sm'
@@ -110,7 +176,7 @@ export default function LoginPage() {
               </button>
               <button
                 type="button"
-                onClick={() => { setLoginType('patient'); setError('') }}
+                onClick={() => { setLoginType('patient'); setError(''); setFailedAttempts(0) }}
                 className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-sm font-medium transition-all ${
                   loginType === 'patient'
                     ? 'bg-white text-[#0055BB] shadow-sm'
@@ -132,7 +198,7 @@ export default function LoginPage() {
                       type="email"
                       placeholder="doctor@hospital.com"
                       value={email}
-                      onChange={e => setEmail(e.target.value)}
+                      onChange={e => { setEmail(e.target.value); setFailedAttempts(0) }}
                       autoComplete="email"
                     />
                   </div>
@@ -160,24 +226,60 @@ export default function LoginPage() {
                   </div>
                 </>
               ) : (
-                <div className="space-y-1.5">
-                  <Label htmlFor="national-id">National ID</Label>
-                  <Input
-                    id="national-id"
-                    type="text"
-                    placeholder="Enter your National ID"
-                    value={nationalId}
-                    onChange={e => setNationalId(e.target.value)}
-                    autoComplete="off"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">No password needed — your National ID is your key.</p>
-                </div>
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="patient-email">Email Address</Label>
+                    <Input
+                      id="patient-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={e => { setEmail(e.target.value); setFailedAttempts(0) }}
+                      autoComplete="email"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="patient-password">Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="patient-password"
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        autoComplete="current-password"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(s => !s)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
 
               {error && (
                 <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2.5 text-sm text-red-700">
                   <AlertCircle className="h-4 w-4 flex-shrink-0" />
                   {error}
+                </div>
+              )}
+
+              {/* Forgot password hint — appears after 2 failed staff attempts */}
+              {failedAttempts >= 2 && loginType === 'staff' && (
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={openForgot}
+                    className="text-sm text-[#0055BB] hover:underline font-medium"
+                  >
+                    Forgot your password?
+                  </button>
                 </div>
               )}
 
@@ -191,11 +293,18 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            {loginType === 'staff' && (
+            {loginType === 'staff' ? (
               <p className="mt-4 text-center text-sm text-gray-500">
                 New doctor?{' '}
                 <Link to="/signup/doctor" className="text-[#0055BB] font-medium hover:underline">
                   Register here
+                </Link>
+              </p>
+            ) : (
+              <p className="mt-4 text-center text-sm text-gray-500">
+                New patient?{' '}
+                <Link to="/signup/patient" className="text-[#0055BB] font-medium hover:underline">
+                  Create your account
                 </Link>
               </p>
             )}
@@ -206,6 +315,137 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgot && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 relative">
+            <button
+              onClick={closeForgot}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            {forgotStep === 'email' && (
+              <>
+                <h3 className="text-xl font-bold text-gray-900 mb-1">Reset Password</h3>
+                <p className="text-sm text-gray-500 mb-6">Enter your email and we'll send you a one-time code.</p>
+                <form onSubmit={handleSendOtp} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="forgot-email">Email Address</Label>
+                    <Input
+                      id="forgot-email"
+                      type="email"
+                      placeholder="doctor@hospital.com"
+                      value={forgotEmail}
+                      onChange={e => setForgotEmail(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  {forgotError && (
+                    <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2.5 text-sm text-red-700">
+                      <AlertCircle className="h-4 w-4 flex-shrink-0" />{forgotError}
+                    </div>
+                  )}
+                  <Button type="submit" className="w-full h-10" disabled={forgotLoading}>
+                    {forgotLoading ? (
+                      <span className="flex items-center gap-2">
+                        <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                        Sending...
+                      </span>
+                    ) : 'Send OTP'}
+                  </Button>
+                </form>
+              </>
+            )}
+
+            {forgotStep === 'otp' && (
+              <>
+                <h3 className="text-xl font-bold text-gray-900 mb-1">Enter OTP</h3>
+                <p className="text-sm text-gray-500 mb-6">
+                  A 6-digit code was sent to <span className="font-medium text-gray-700">{forgotEmail}</span>. Enter it below along with your new password.
+                </p>
+                <form onSubmit={handleResetPassword} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="otp">OTP Code</Label>
+                    <Input
+                      id="otp"
+                      type="text"
+                      placeholder="6-digit code"
+                      value={forgotOtp}
+                      onChange={e => setForgotOtp(e.target.value)}
+                      maxLength={6}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="new-password">New Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="new-password"
+                        type={showForgotPassword ? 'text' : 'password'}
+                        placeholder="Min 8 chars, upper, lower, number, symbol"
+                        value={forgotNewPassword}
+                        onChange={e => setForgotNewPassword(e.target.value)}
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowForgotPassword(s => !s)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showForgotPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="confirm-password">Confirm Password</Label>
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      placeholder="Repeat new password"
+                      value={forgotConfirmPassword}
+                      onChange={e => setForgotConfirmPassword(e.target.value)}
+                    />
+                  </div>
+                  {forgotError && (
+                    <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2.5 text-sm text-red-700">
+                      <AlertCircle className="h-4 w-4 flex-shrink-0" />{forgotError}
+                    </div>
+                  )}
+                  <Button type="submit" className="w-full h-10" disabled={forgotLoading}>
+                    {forgotLoading ? (
+                      <span className="flex items-center gap-2">
+                        <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                        Resetting...
+                      </span>
+                    ) : 'Reset Password'}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => { setForgotStep('email'); setForgotError('') }}
+                    className="w-full text-sm text-gray-500 hover:text-gray-700 text-center"
+                  >
+                    ← Use a different email
+                  </button>
+                </form>
+              </>
+            )}
+
+            {forgotStep === 'done' && (
+              <div className="text-center py-4 space-y-4">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 mx-auto">
+                  <CheckCircle2 className="h-8 w-8 text-green-600" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900">Password Reset!</h3>
+                <p className="text-sm text-gray-500">Your password has been updated. You can now sign in with your new password.</p>
+                <Button className="w-full h-10" onClick={closeForgot}>Back to Sign In</Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,10 +1,10 @@
-fastapi==0.115.5
-uvicorn[standard]==0.32.1
-pydantic==2.10.3
-groq==0.11.0
+fastapi>=0.115.5
+uvicorn[standard]>=0.32.1
+pydantic>=2.11.0
 python-multipart==0.0.19
 python-dotenv
 motor>=3.3.0
 pymongo>=4.6.0
 requests
 openai>=1.0.0
+groq>=0.9.0

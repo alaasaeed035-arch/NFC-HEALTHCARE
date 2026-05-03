@@ -3,7 +3,6 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   Heart,
   LayoutDashboard,
-  Users,
   FileText,
   Building2,
   ShieldCheck,
@@ -14,7 +13,8 @@ import {
   LogOut,
   Activity,
   UserCog,
-  Globe,
+  Package,
+  FlaskConical,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import type { Role } from '@/types'
@@ -32,17 +32,16 @@ const NAV_ITEMS: Record<Role, NavItem[]> = {
   ],
   doctor: [
     { label: 'Dashboard', to: '/doctor/dashboard', icon: LayoutDashboard },
-    { label: 'My Patients', to: '/doctor/dashboard#patients', icon: Users },
-    { label: 'DDI Reports', to: '/doctor/dashboard#ddi', icon: AlertTriangle },
+    { label: 'DDI Reports', to: '/doctor/dashboard#ddi-log', icon: AlertTriangle },
   ],
   receptionist: [
     { label: 'Queue Manager', to: '/receptionist/dashboard', icon: ClipboardList },
-    { label: 'Patients', to: '/receptionist/dashboard#patients', icon: Users },
     { label: 'Doctors', to: '/receptionist/dashboard#doctors', icon: Stethoscope },
   ],
   admin_hospital: [
     { label: 'Staff Dashboard', to: '/admin-hospital/staff', icon: LayoutDashboard },
     { label: 'Receptionists', to: '/admin-hospital/staff#receptionists', icon: UserCog },
+    { label: 'Pharmacists', to: '/admin-hospital/staff#pharmacists', icon: FlaskConical },
     { label: 'Doctors', to: '/admin-hospital/staff#doctors', icon: Stethoscope },
   ],
   admin: [
@@ -50,11 +49,11 @@ const NAV_ITEMS: Record<Role, NavItem[]> = {
     { label: 'Facilities', to: '/admin/facilities', icon: Building2 },
     { label: 'Hospital Admins', to: '/admin/facilities#admins', icon: UserCog },
   ],
-  super_admin: [
-    { label: 'Global Overview', to: '/super-admin/overview', icon: Globe },
-    { label: 'All Users', to: '/super-admin/overview#users', icon: Users },
-    { label: 'All Hospitals', to: '/super-admin/overview#hospitals', icon: Building2 },
-    { label: 'All Admins', to: '/super-admin/overview#admins', icon: UserCog },
+  super_admin: [],
+  pharmacist: [
+    { label: 'Inventory', to: '/pharmacist/dashboard#inventory', icon: Package },
+    { label: 'Dispense', to: '/pharmacist/dashboard#dispense', icon: ClipboardList },
+    { label: 'History', to: '/pharmacist/dashboard#history', icon: FileText },
   ],
 }
 
@@ -65,6 +64,7 @@ const ROLE_LABELS: Record<Role, string> = {
   admin_hospital: 'Hospital Admin',
   admin: 'Administrator',
   super_admin: 'Super Admin',
+  pharmacist: 'Pharmacist',
 }
 
 interface SidebarProps {
@@ -126,7 +126,10 @@ export function Sidebar({ onClose }: SidebarProps) {
             <NavLink
               key={item.to}
               to={item.to}
-              onClick={onClose}
+              onClick={() => {
+                document.getElementById('main-content')?.scrollTo({ top: 0, behavior: 'smooth' })
+                onClose?.()
+              }}
               className={() => {
                 const isActive = location.pathname === item.to && !location.hash
                 return `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${isActive
@@ -144,7 +147,10 @@ export function Sidebar({ onClose }: SidebarProps) {
 
       {/* User section */}
       <div className="border-t border-white/10 p-4 space-y-3">
-        <div className="flex items-center gap-3">
+        <button
+          onClick={() => { navigate('/profile'); onClose?.() }}
+          className="w-full flex items-center gap-3 rounded-lg p-1 hover:bg-white/10 transition-colors text-left"
+        >
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-[#0055BB] text-white text-sm font-bold">
             {displayName.charAt(0).toUpperCase()}
           </div>
@@ -154,7 +160,7 @@ export function Sidebar({ onClose }: SidebarProps) {
               {ROLE_LABELS[role]}
             </Badge>
           </div>
-        </div>
+        </button>
         <button
           onClick={logout}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[#94A3B8] hover:bg-white/10 hover:text-white transition-colors"

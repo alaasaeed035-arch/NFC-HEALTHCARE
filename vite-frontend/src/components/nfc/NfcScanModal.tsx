@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Wifi, User, Droplets, CreditCard } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { Wifi, User, Droplets, CreditCard, CheckCircle2, AlertCircle } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -15,27 +15,96 @@ import { Spinner } from '@/components/ui/Spinner'
 import type { Patient } from '@/types'
 import client from '@/api/client'
 
+const NFC_BRIDGE = 'http://localhost:8002'
+const POLL_MS = 500
+
 interface NfcScanModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onPatientFound: (patient: Patient) => void
 }
 
+type BridgeStatus = 'checking' | 'connected' | 'unavailable'
+
 export function NfcScanModal({ open, onOpenChange, onPatientFound }: NfcScanModalProps) {
   const [nationalId, setNationalId] = useState('')
   const [searching, setSearching] = useState(false)
   const [foundPatient, setFoundPatient] = useState<Patient | null>(null)
   const [error, setError] = useState('')
+  const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>('checking')
 
-  const handleSearch = async () => {
+  // refs so the poll callback always sees current values without re-creating the interval
+  const lastUidRef = useRef<string | null>(null)
+  const searchingRef = useRef(false)
+  const patientFoundRef = useRef(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (!open) {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      lastUidRef.current = null
+      searchingRef.current = false
+      patientFoundRef.current = false
+      setBridgeStatus('checking')
+      return
+    }
+
+    const pollCard = async () => {
+      if (searchingRef.current || patientFoundRef.current) return
+      try {
+        const controller = new AbortController()
+        const t = setTimeout(() => controller.abort(), 1000)
+        const res = await fetch(`${NFC_BRIDGE}/nfc/card`, { signal: controller.signal })
+        clearTimeout(t)
+        const data: { uid: string | null; present: boolean; reader_available: boolean } = await res.json()
+
+        if (!data.reader_available) {
+          setBridgeStatus('unavailable')
+          return
+        }
+        setBridgeStatus('connected')
+
+        if (data.present && data.uid && data.uid !== lastUidRef.current) {
+          lastUidRef.current = data.uid
+          searchingRef.current = true
+          setSearching(true)
+          setError('')
+          try {
+            const patientRes = await client.get(`/auth/patient/by-nfc-uid/${data.uid}`)
+            const patient: Patient = patientRes.data?.data ?? patientRes.data
+            patientFoundRef.current = true
+            setFoundPatient(patient)
+          } catch {
+            setError('No patient is registered with this card.')
+            lastUidRef.current = null // allow retry on next tap
+          } finally {
+            setSearching(false)
+            searchingRef.current = false
+          }
+        } else if (!data.present) {
+          lastUidRef.current = null // card removed — ready for next tap
+        }
+      } catch {
+        setBridgeStatus('unavailable')
+      }
+    }
+
+    pollCard()
+    intervalRef.current = setInterval(pollCard, POLL_MS)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [open])
+
+  const handleManualSearch = async () => {
     if (!nationalId.trim()) return
     setSearching(true)
     setError('')
     try {
       const res = await client.get(`/auth/patient/by-national-id/${nationalId.trim()}`)
-      const data = res.data
-      const patient: Patient = data.data ?? data
+      const patient: Patient = res.data?.data ?? res.data
       setFoundPatient(patient)
+      patientFoundRef.current = true
     } catch {
       setError('Patient not found. Please check the National ID.')
     } finally {
@@ -59,6 +128,31 @@ export function NfcScanModal({ open, onOpenChange, onPatientFound }: NfcScanModa
     setError('')
   }
 
+  const BridgeIndicator = () => {
+    if (bridgeStatus === 'connected') {
+      return (
+        <div className="flex items-center gap-1.5 text-xs text-green-600">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          NFC reader connected
+        </div>
+      )
+    }
+    if (bridgeStatus === 'unavailable') {
+      return (
+        <div className="flex items-center gap-1.5 text-xs text-amber-500">
+          <AlertCircle className="h-3.5 w-3.5" />
+          NFC reader not detected — use manual entry
+        </div>
+      )
+    }
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-gray-400">
+        <Spinner size="sm" />
+        Checking NFC reader…
+      </div>
+    )
+  }
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-md">
@@ -71,18 +165,33 @@ export function NfcScanModal({ open, onOpenChange, onPatientFound }: NfcScanModa
 
         {!foundPatient ? (
           <div className="space-y-6">
-            {/* NFC Animation */}
-            <div className="flex flex-col items-center justify-center py-6">
+            {/* NFC Animation + status */}
+            <div className="flex flex-col items-center justify-center py-6 gap-3">
               <div className="relative flex items-center justify-center">
-                <span className="absolute inline-flex h-24 w-24 rounded-full bg-blue-100 opacity-75 animate-ping" />
-                <span className="absolute inline-flex h-16 w-16 rounded-full bg-blue-200 opacity-60 animate-ping [animation-delay:0.3s]" />
-                <div className="relative inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#0055BB]">
-                  <Wifi className="h-5 w-5 text-white rotate-90" />
+                {bridgeStatus === 'connected' && (
+                  <>
+                    <span className="absolute inline-flex h-24 w-24 rounded-full bg-blue-100 opacity-75 animate-ping" />
+                    <span className="absolute inline-flex h-16 w-16 rounded-full bg-blue-200 opacity-60 animate-ping [animation-delay:0.3s]" />
+                  </>
+                )}
+                <div className={`relative inline-flex h-10 w-10 items-center justify-center rounded-full ${bridgeStatus === 'unavailable' ? 'bg-gray-300' : 'bg-[#0055BB]'}`}>
+                  {searching
+                    ? <Spinner size="sm" className="text-white" />
+                    : <Wifi className="h-5 w-5 text-white rotate-90" />
+                  }
                 </div>
               </div>
-              <p className="mt-4 text-sm font-medium text-gray-600 animate-pulse">
-                Tap patient card to reader...
-              </p>
+
+              <BridgeIndicator />
+
+              {bridgeStatus === 'connected' && !searching && (
+                <p className="text-sm font-medium text-gray-600 animate-pulse">
+                  Tap patient card to reader…
+                </p>
+              )}
+              {searching && (
+                <p className="text-sm font-medium text-gray-600">Looking up patient…</p>
+              )}
             </div>
 
             <div className="relative">
@@ -102,9 +211,9 @@ export function NfcScanModal({ open, onOpenChange, onPatientFound }: NfcScanModa
                   placeholder="Enter National ID..."
                   value={nationalId}
                   onChange={e => setNationalId(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                  onKeyDown={e => e.key === 'Enter' && handleManualSearch()}
                 />
-                <Button onClick={handleSearch} disabled={searching || !nationalId.trim()}>
+                <Button onClick={handleManualSearch} disabled={searching || !nationalId.trim()}>
                   {searching ? <Spinner size="sm" /> : 'Find'}
                 </Button>
               </div>
@@ -142,12 +251,16 @@ export function NfcScanModal({ open, onOpenChange, onPatientFound }: NfcScanModa
                     <Droplets className="h-4 w-4 opacity-60" />
                     <div>
                       <p className="opacity-60 text-xs">Blood Type</p>
-                      <p className="font-bold text-base">{foundPatient.bloodType ?? 'Unknown'}</p>
+                      <p className="font-bold text-base">{foundPatient.bloodType ?? '—'}</p>
                     </div>
                   </div>
                   <div>
                     <p className="opacity-60 text-xs">Date of Birth</p>
-                    <p className="font-medium">{new Date(foundPatient.dateOfBirth).toLocaleDateString()}</p>
+                    <p className="font-medium">
+                      {foundPatient.dateOfBirth
+                        ? (() => { const d = new Date(foundPatient.dateOfBirth); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString() })()
+                        : '—'}
+                    </p>
                   </div>
                   {foundPatient.ChronicDiseases && foundPatient.ChronicDiseases.length > 0 && (
                     <div>

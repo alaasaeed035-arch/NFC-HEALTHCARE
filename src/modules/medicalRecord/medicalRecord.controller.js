@@ -1,4 +1,4 @@
-import { Doctor, Hospital, MedicalRecord, Patient } from "../../../db/index.js";
+import { ConflictAnalysis, Doctor, Hospital, MedicalRecord, Patient } from "../../../db/index.js";
 import { AppError } from "../../utils/appError.js";
 import { roles } from "../../utils/constant/enum.js";
 import { messages } from "../../utils/constant/messages.js";
@@ -39,10 +39,12 @@ export const addMedicalRecord = async (req, res, next) => {
 
   // AI Conflict Checking - Check medications for conflicts
   let aiAnalysisData = null;
+  let rawConflictResults = null;
   if (medications && medications.length > 0) {
     try {
       console.log('Running AI conflict check for medications...');
       const conflictResults = await checkMultipleDrugConflicts(patientExists, medications);
+      rawConflictResults = conflictResults;
 
       // Find the most severe conflict
       let mostSevereConflict = null;
@@ -165,59 +167,6 @@ export const updateMedicalRecord = async (req, res, next) => {
   if (treatment) record.treatment = treatment;
   if (medications) {
     record.medications = medications;
-
-    // Re-run AI conflict check since medications changed
-    try {
-      const patientForAI = await Patient.findById(record.patientId);
-      if (patientForAI && medications.length > 0) {
-        const conflictResults = await checkMultipleDrugConflicts(patientForAI, medications);
-
-        let mostSevereConflict = null;
-        let maxSeverity = 'none';
-        const severityLevels = { none: 0, low: 1, moderate: 2, high: 3, critical: 4, unknown: 0 };
-
-        for (const result of conflictResults) {
-          if (result.analysis && result.analysis.severity) {
-            const currentLevel = severityLevels[result.analysis.severity] || 0;
-            if (currentLevel > (severityLevels[maxSeverity] || 0)) {
-              maxSeverity = result.analysis.severity;
-              mostSevereConflict = result.analysis;
-            }
-          }
-        }
-
-        record.aiAnalysis = mostSevereConflict
-          ? {
-              hasConflict: mostSevereConflict.has_conflict || false,
-              severity: mostSevereConflict.severity || 'none',
-              analysis: mostSevereConflict.analysis || '',
-              recommendations: mostSevereConflict.recommendations || [],
-              interactions: mostSevereConflict.interactions || [],
-              checkedAt: new Date(),
-              serviceAvailable: conflictResults[0]?.success !== false,
-            }
-          : {
-              hasConflict: false,
-              severity: 'none',
-              analysis: '',
-              recommendations: [],
-              interactions: [],
-              checkedAt: new Date(),
-              serviceAvailable: true,
-            };
-      }
-    } catch (error) {
-      console.error('AI conflict re-check failed on update:', error);
-      record.aiAnalysis = {
-        hasConflict: false,
-        severity: 'unknown',
-        analysis: 'AI conflict check was unavailable during record update.',
-        recommendations: ['Manually verify drug interactions'],
-        interactions: [],
-        checkedAt: new Date(),
-        serviceAvailable: false,
-      };
-    }
   }
 
   // Save updated record

@@ -3,7 +3,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { existsSync } from "fs";
 import { globalErrorHandling } from "./utils/appError.js";
-import { adminHospitalRouter, adminRouter, authRouter, hospitalRouter, medicalRecordRouter, receptionistRouter, aiConflictRouter, chatbotRouter, ddiRouter } from "./modules/index.js";
+import { adminHospitalRouter, adminRouter, authRouter, hospitalRouter, medicalRecordRouter, receptionistRouter, aiConflictRouter, chatbotRouter, ddiRouter, pharmacyRouter } from "./modules/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,9 +35,10 @@ export const bootStrap = (app, express) => {
   app.use("/api/ai-conflict", aiConflictRouter);
   app.use("/chatbot", chatbotRouter);
   app.use("/api/ddi-reports", ddiRouter);
+  app.use("/api/pharmacy", pharmacyRouter);
 
   // SPA catch-all — must be after all API routes
-  app.get("*", (req, res) => {
+  app.get("/{*splat}", (req, res) => {
     const indexPath = join(distPath, "index.html");
     if (existsSync(indexPath)) {
       res.sendFile(indexPath);

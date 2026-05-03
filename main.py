@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -7,6 +8,8 @@ import requests
 import json
 import re
 import os
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 from datetime import datetime
 import logging
@@ -26,13 +29,17 @@ load_dotenv()
 
 # ==================== MONGODB SETUP ====================
 # MongoDB connection
-MONGODB_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/nfc-healthcare")
+MONGODB_URI = os.getenv("MONGO_URI")
+if not MONGODB_URI:
+    logger.warning("MONGO_URI not set — MongoDB logging will be disabled")
 mongo_client = None
 db = None
 
 async def init_mongodb():
     """Initialize MongoDB connection and create indexes"""
     global mongo_client, db
+    if not MONGODB_URI:
+        return
     try:
         mongo_client = AsyncIOMotorClient(MONGODB_URI, serverSelectionTimeoutMS=3000)
         db = mongo_client.get_database()
@@ -60,7 +67,15 @@ async def close_mongodb():
         mongo_client.close()
         logger.info("MongoDB connection closed")
 
-app = FastAPI(title="Medical Treatment Conflict Checker")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_mongodb()
+    logger.info("🚀 FastAPI AI Service started")
+    yield
+    await close_mongodb()
+    logger.info("👋 FastAPI AI Service stopped")
+
+app = FastAPI(title="Medical Treatment Conflict Checker", lifespan=lifespan)
 
 # CORS middleware - Allow Node.js backend to access this service
 app.add_middleware(
@@ -141,15 +156,43 @@ class DrugInfoService:
         return None
     
     @classmethod
+    def get_rxnorm_interactions(cls, rxcui: str) -> Optional[list]:
+        """Get known drug interactions for a rxcui from RxNorm"""
+        try:
+            url = f"{cls.RXNORM_BASE_URL}/interaction/interaction.json?rxcui={rxcui}"
+            response = requests.get(url, timeout=10)
+            if response.status_code != 200:
+                return None
+            data = response.json()
+            interactions = []
+            for group in data.get("interactionTypeGroup", []):
+                source = group.get("sourceName", "")
+                for itype in group.get("interactionType", []):
+                    for pair in itype.get("interactionPair", []):
+                        concepts = pair.get("interactionConcept", [])
+                        names = [c.get("minConceptItem", {}).get("name", "") for c in concepts]
+                        interactions.append({
+                            "drugs": names,
+                            "severity": pair.get("severity", "unknown"),
+                            "description": pair.get("description", ""),
+                            "source": source,
+                        })
+            return interactions if interactions else None
+        except Exception as e:
+            print(f"RxNorm Interaction Error: {e}")
+        return None
+
+    @classmethod
     def get_complete_drug_info(cls, drug_name: str) -> Dict:
         """Get comprehensive drug information from all sources"""
         fda_info = cls.get_fda_drug_info(drug_name)
-        rxnorm_info = None  # Can add this back if needed
-        
+        rxnorm_info = cls.get_rxcui(drug_name)
+        rxnorm_interactions = cls.get_rxnorm_interactions(rxnorm_info) if rxnorm_info else None
+
         return {
             "drug_name": drug_name,
             "fda_information": fda_info,
-            "rxnorm_information": rxnorm_info,
+            "rxnorm_information": {"rxcui": rxnorm_info, "interactions": rxnorm_interactions} if rxnorm_info else None,
             "has_data": bool(fda_info or rxnorm_info)
         }
 
@@ -213,7 +256,7 @@ async def analyze_conflict_with_ai(prompt: str, patient_age: int, num_treatments
     
     # Call Groq API
     completion = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+        model="llama-3.3-70b-versatile",
         messages=[
             {
                 "role": "system",
@@ -229,7 +272,7 @@ async def analyze_conflict_with_ai(prompt: str, patient_age: int, num_treatments
     )
     
     ai_response = completion.choices[0].message.content
-    
+
     # Parse JSON response
     json_match = re.search(r'\{.*\}', ai_response, re.DOTALL)
     if json_match:
@@ -254,13 +297,16 @@ async def check_treatment_conflict(request: ConflictCheckRequest):
     logger.info(f"Received conflict check request for patient: {request.patient.name}")
     
     try:
-        # Fetch drug information
-        new_drug_info = DrugInfoService.get_complete_drug_info(request.new_treatment.name)
-        
-        current_drugs_info = [
-            DrugInfoService.get_complete_drug_info(t.name)
-            for t in request.patient.current_treatments
-        ]
+        # Fetch drug information for all drugs in parallel
+        loop = asyncio.get_running_loop()
+        drug_names = [request.new_treatment.name] + [t.name for t in request.patient.current_treatments]
+        with ThreadPoolExecutor() as executor:
+            drug_infos = await asyncio.gather(
+                *[loop.run_in_executor(executor, DrugInfoService.get_complete_drug_info, name)
+                  for name in drug_names]
+            )
+        new_drug_info = drug_infos[0]
+        current_drugs_info = list(drug_infos[1:])
         
         # Build prompt
         current_treatments_text = "\n".join([
@@ -270,29 +316,36 @@ async def check_treatment_conflict(request: ConflictCheckRequest):
         
         new_treatment_text = f"{request.new_treatment.name} ({request.new_treatment.dosage}, {request.new_treatment.frequency})"
         
-        # Add FDA data to prompt for new treatment
-        additional_context = "\n\n=== DRUG INFORMATION FROM FDA ===\n"
+        # Add FDA + RxNorm data to prompt
+        additional_context = "\n\n=== DRUG INFORMATION FROM FDA & RXNORM ===\n"
         has_fda_context = False
-        if new_drug_info['has_data'] and new_drug_info['fda_information']:
-            fda = new_drug_info['fda_information']
-            additional_context += f"\nNew Treatment ({request.new_treatment.name}):\n"
-            if fda.get('warnings'):
-                additional_context += f"- Warnings: {fda['warnings'][:300]}...\n"
-                has_fda_context = True
-            if fda.get('drug_interactions'):
-                additional_context += f"- Known Interactions: {fda['drug_interactions'][:300]}...\n"
+
+        def _append_drug_context(label: str, info: dict) -> bool:
+            nonlocal additional_context
+            added = False
+            fda = info.get("fda_information") or {}
+            if fda.get("warnings"):
+                additional_context += f"\n{label}:\n- Warnings: {fda['warnings'][:300]}...\n"
+                added = True
+            if fda.get("drug_interactions"):
+                additional_context += f"- FDA Interactions: {fda['drug_interactions'][:300]}...\n"
+                added = True
+            rxn = (info.get("rxnorm_information") or {}).get("interactions") or []
+            if rxn:
+                additional_context += f"- RxNorm Known Interactions:\n"
+                for ix in rxn[:5]:
+                    drugs_str = " + ".join(filter(None, ix["drugs"]))
+                    additional_context += f"  [{ix['severity'].upper()}] {drugs_str}: {ix['description']}\n"
+                added = True
+            return added
+
+        if new_drug_info['has_data']:
+            if _append_drug_context(f"New Treatment ({request.new_treatment.name})", new_drug_info):
                 has_fda_context = True
 
-        # Inject FDA data for existing patient medications (Bug 4 fix)
         for info in current_drugs_info:
-            if info['has_data'] and info['fda_information']:
-                fda = info['fda_information']
-                additional_context += f"\nExisting Drug ({info['drug_name']}):\n"
-                if fda.get('warnings'):
-                    additional_context += f"- Warnings: {fda['warnings'][:300]}...\n"
-                    has_fda_context = True
-                if fda.get('drug_interactions'):
-                    additional_context += f"- Known Interactions: {fda['drug_interactions'][:300]}...\n"
+            if info['has_data']:
+                if _append_drug_context(f"Existing Drug ({info['drug_name']})", info):
                     has_fda_context = True
 
         prompt = f"""Analyze potential drug interactions and treatment conflicts.
@@ -332,55 +385,12 @@ Respond in JSON format:
             new_treatment_info=DrugInformation(**new_drug_info) if new_drug_info['has_data'] else None
         )
 
-        try:
-            # Save conflict analysis to MongoDB (if available)
-            if db is not None:
-                analysis_log = {
-                    "patient_id": request.patient.id or "unknown",
-                    "patient_name": request.patient.name,
-                    "patient_age": request.patient.age,
-                    "current_medications": [t.model_dump() for t in request.patient.current_treatments],
-                    "new_treatment": request.new_treatment.model_dump(),
-                    "analysis": {
-                        "has_conflict": response_obj.has_conflict,
-                        "severity": response_obj.severity,
-                        "analysis": response_obj.analysis,
-                        "recommendations": response_obj.recommendations,
-                        "interactions": response_obj.interactions
-                    },
-                    "fda_info": new_drug_info if new_drug_info['has_data'] else None,
-                    "created_at": datetime.utcnow(),
-                    "groq_model": "openai/gpt-oss-120b"
-                }
-                
-                await db.conflict_analyses.insert_one(analysis_log)
-                logger.info(f"✅ Conflict analysis logged to MongoDB for patient: {request.patient.name}")
-            else:
-                logger.debug("MongoDB not available - skipping conflict analysis logging")
-        except Exception as db_err:
-            logger.error(f"❌ MongoDB logging error: {db_err}")
-            # Don't fail the request if logging fails
-
         return response_obj
         
     except Exception as e:
         logger.error(f"Error in /check-conflict: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
-
-# ==================== STARTUP & SHUTDOWN EVENTS ====================
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize MongoDB connection on startup"""
-    await init_mongodb()
-    logger.info("🚀 FastAPI AI Service started")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Close MongoDB connection on shutdown"""
-    await close_mongodb()
-    logger.info("👋 FastAPI AI Service stopped")
 
 # ==================== RUN SERVER ====================
 

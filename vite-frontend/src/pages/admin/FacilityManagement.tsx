@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Building2, UserPlus, Pencil, Trash2, Phone, MapPin, Mail,
-  Users, Stethoscope, UserCog, LayoutDashboard, Search
+  Users, Stethoscope, UserCog, LayoutDashboard, CreditCard, Wifi, CheckCircle2, AlertCircle
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
@@ -37,10 +37,19 @@ interface AdminForm {
   fullName: string; email: string; password: string; phoneNumber: string; hospitalId: string
 }
 
+interface NfcCard {
+  _id: string
+  cardNumber: string
+  nfcUid?: string | null
+  isLinked: boolean
+  patientId?: { _id: string; firstName: string; lastName: string; nationalId: string } | null
+  createdAt: string
+}
+
 export default function FacilityManagement() {
   const location = useLocation()
   const navigate = useNavigate()
-  const VALID_TABS = ['overview', 'hospitals', 'admins']
+  const VALID_TABS = ['overview', 'hospitals', 'admins', 'cards']
   const hashTab = location.hash.replace('#', '')
   const activeTab = VALID_TABS.includes(hashTab) ? hashTab : 'hospitals'
   const { toast } = useToast()
@@ -49,15 +58,29 @@ export default function FacilityManagement() {
   const [patients, setPatients] = useState<Patient[]>([])
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [receptionists, setReceptionists] = useState<ReceptionistRow[]>([])
-  const [overviewSearch, setOverviewSearch] = useState('')
-  const [overviewRoleFilter, setOverviewRoleFilter] = useState<'all' | 'patient' | 'doctor' | 'receptionist'>('all')
   const [loading, setLoading] = useState(true)
   const [hospitalDialogOpen, setHospitalDialogOpen] = useState(false)
   const [adminDialogOpen, setAdminDialogOpen] = useState(false)
   const [editingHospital, setEditingHospital] = useState<Hospital | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [deleteAdminId, setDeleteAdminId] = useState<string | null>(null)
+  const [deletingAdmin, setDeletingAdmin] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  const [nfcCards, setNfcCards] = useState<NfcCard[]>([])
+  const [cardStatusFilter, setCardStatusFilter] = useState<'all' | 'linked' | 'available'>('all')
+  const [generateCount, setGenerateCount] = useState(1)
+  const [generatingCards, setGeneratingCards] = useState(false)
+  const [scanTarget, setScanTarget] = useState<NfcCard | null>(null)
+  type ScanStatus = 'idle' | 'scanning' | 'confirm' | 'saving' | 'success' | 'error'
+  const [scanStatus, setScanStatus] = useState<ScanStatus>('idle')
+  const [scanUid, setScanUid] = useState('')
+  const [scanError, setScanError] = useState('')
+  const [bridgeStatus, setBridgeStatus] = useState<'checking' | 'connected' | 'unavailable'>('checking')
+  const [manualUid, setManualUid] = useState('')
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastScanUidRef = useRef<string | null>(null)
 
   const [hospitalForm, setHospitalForm] = useState<HospitalForm>({
     name: '', address: '', phoneNumber: '', email: '', hotline: '', licenseNumber: '',
@@ -74,12 +97,13 @@ export default function FacilityManagement() {
   const fetchHospitals = async () => {
     setLoading(true)
     try {
-      const [hRes, aRes, pRes, dRes, rRes] = await Promise.allSettled([
+      const [hRes, aRes, pRes, dRes, rRes, cRes] = await Promise.allSettled([
         client.get('/hospital'),
         client.get('/admin/hospital-admins'),
         client.get('/auth/patients'),
         client.get('/auth/doctors'),
         client.get('/auth/receptionists'),
+        client.get('/admin/cards'),
       ])
       if (hRes.status === 'fulfilled') {
         const d = hRes.value.data
@@ -101,8 +125,37 @@ export default function FacilityManagement() {
         const d = rRes.value.data
         setReceptionists(Array.isArray(d) ? d : d.data ?? [])
       }
+      if (cRes.status === 'fulfilled') {
+        const d = cRes.value.data
+        setNfcCards(Array.isArray(d) ? d : d.data ?? [])
+      }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchCards = async () => {
+    try {
+      const res = await client.get('/admin/cards')
+      const d = res.data
+      setNfcCards(Array.isArray(d) ? d : d.data ?? [])
+    } catch {
+      // silent
+    }
+  }
+
+  const handleGenerateCards = async () => {
+    if (generateCount < 1 || generateCount > 100) return
+    setGeneratingCards(true)
+    try {
+      const res = await client.post('/admin/cards/generate', { count: generateCount })
+      toast({ title: `${res.data.count} card(s) generated successfully`, variant: 'success' })
+      await fetchCards()
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      toast({ title: e?.response?.data?.message ?? 'Failed to generate cards', variant: 'error' })
+    } finally {
+      setGeneratingCards(false)
     }
   }
 
@@ -130,7 +183,7 @@ export default function FacilityManagement() {
     setSubmitting(true)
     try {
       if (editingHospital) {
-        await client.put(`/hospital/${editingHospital._id}`, hospitalForm)
+        await client.put(`/hospital/update/${editingHospital._id}`, hospitalForm)
         toast({ title: 'Hospital updated successfully', variant: 'success' })
       } else {
         await client.post('/hospital/create', hospitalForm)
@@ -152,7 +205,7 @@ export default function FacilityManagement() {
     if (!deleteId) return
     setDeleting(true)
     try {
-      await client.delete(`/hospital/${deleteId}`)
+      await client.delete(`/hospital/delete/${deleteId}`)
       toast({ title: 'Hospital deleted', variant: 'success' })
       setHospitals(prev => prev.filter(h => h._id !== deleteId))
       setDeleteId(null)
@@ -160,6 +213,22 @@ export default function FacilityManagement() {
       toast({ title: 'Failed to delete hospital', variant: 'error' })
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const handleDeleteAdmin = async () => {
+    if (!deleteAdminId) return
+    setDeletingAdmin(true)
+    try {
+      await client.delete(`/admin/hospital-admin/${deleteAdminId}`)
+      toast({ title: 'Hospital admin deleted', variant: 'success' })
+      setHospitalAdmins(prev => prev.filter(a => a._id !== deleteAdminId))
+      setDeleteAdminId(null)
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      toast({ title: e?.response?.data?.message ?? 'Failed to delete admin', variant: 'error' })
+    } finally {
+      setDeletingAdmin(false)
     }
   }
 
@@ -195,6 +264,82 @@ export default function FacilityManagement() {
     }
   }
 
+  const openScanDialog = (card: NfcCard) => {
+    setScanTarget(card)
+    setScanStatus('idle')
+    setScanUid('')
+    setScanError('')
+    setManualUid('')
+    setBridgeStatus('checking')
+  }
+
+  const closeScanDialog = () => {
+    if (scanIntervalRef.current) clearInterval(scanIntervalRef.current)
+    scanIntervalRef.current = null
+    lastScanUidRef.current = null
+    setScanTarget(null)
+    setScanStatus('idle')
+    setScanUid('')
+    setScanError('')
+    setManualUid('')
+  }
+
+  const handleScanNfc = () => {
+    setScanStatus('scanning')
+    setScanError('')
+    setScanUid('')
+    lastScanUidRef.current = null
+    setBridgeStatus('checking')
+
+    const poll = async () => {
+      try {
+        const controller = new AbortController()
+        const t = setTimeout(() => controller.abort(), 1000)
+        const res = await fetch('http://localhost:8002/nfc/card', { signal: controller.signal })
+        clearTimeout(t)
+        const data: { uid: string | null; present: boolean; reader_available: boolean } = await res.json()
+
+        if (!data.reader_available) {
+          setBridgeStatus('unavailable')
+          return
+        }
+        setBridgeStatus('connected')
+
+        if (data.present && data.uid && data.uid !== lastScanUidRef.current) {
+          lastScanUidRef.current = data.uid
+          if (scanIntervalRef.current) clearInterval(scanIntervalRef.current)
+          scanIntervalRef.current = null
+          setScanUid(data.uid)
+          setScanStatus('confirm')
+        } else if (!data.present) {
+          lastScanUidRef.current = null
+        }
+      } catch {
+        setBridgeStatus('unavailable')
+      }
+    }
+
+    poll()
+    scanIntervalRef.current = setInterval(poll, 500)
+  }
+
+  const handleSaveUid = async () => {
+    if (!scanTarget) return
+    const uid = scanUid || manualUid.trim().toUpperCase()
+    if (!uid) return
+    setScanStatus('saving')
+    try {
+      await client.put(`/admin/cards/${scanTarget._id}/scan`, { nfcUid: uid })
+      setNfcCards(prev => prev.map(c => c._id === scanTarget._id ? { ...c, nfcUid: uid } : c))
+      setScanStatus('success')
+      toast({ title: 'NFC chip assigned successfully', variant: 'success' })
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      setScanError(e?.response?.data?.message ?? 'Failed to save NFC UID.')
+      setScanStatus('error')
+    }
+  }
+
   const hf = (field: keyof HospitalForm, value: string) => {
     setHospitalForm(prev => ({ ...prev, [field]: value }))
     setFormErrors(prev => ({ ...prev, [field]: '' }))
@@ -217,14 +362,17 @@ export default function FacilityManagement() {
           <TabsTrigger value="admins">
             <UserPlus className="h-4 w-4 mr-1.5" />Hospital Admins
           </TabsTrigger>
+          <TabsTrigger value="cards">
+            <CreditCard className="h-4 w-4 mr-1.5" />NFC Cards
+          </TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
         <TabsContent value="overview">
-          {/* Stats row */}
-          <div className="grid sm:grid-cols-3 gap-4 mb-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Total Patients', value: patients.length, icon: Users, color: 'bg-blue-50 text-[#0055BB]' },
+              { label: 'Hospitals', value: hospitals.length, icon: Building2, color: 'bg-blue-50 text-[#0055BB]' },
+              { label: 'Total Patients', value: patients.length, icon: Users, color: 'bg-indigo-50 text-indigo-600' },
               { label: 'Total Doctors', value: doctors.length, icon: Stethoscope, color: 'bg-green-50 text-green-600' },
               { label: 'Receptionists', value: receptionists.length, icon: UserCog, color: 'bg-purple-50 text-purple-600' },
             ].map(stat => {
@@ -248,114 +396,6 @@ export default function FacilityManagement() {
               )
             })}
           </div>
-
-          {/* Combined table */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <CardTitle>All System Users</CardTitle>
-                <div className="flex gap-3 flex-wrap">
-                  <div className="relative min-w-[200px]">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input
-                      placeholder="Search users..."
-                      className="pl-9"
-                      value={overviewSearch}
-                      onChange={e => setOverviewSearch(e.target.value)}
-                    />
-                  </div>
-                  <Select value={overviewRoleFilter} onValueChange={v => setOverviewRoleFilter(v as typeof overviewRoleFilter)}>
-                    <SelectTrigger className="w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Roles</SelectItem>
-                      <SelectItem value="patient">Patients</SelectItem>
-                      <SelectItem value="doctor">Doctors</SelectItem>
-                      <SelectItem value="receptionist">Receptionists</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex justify-center py-8"><Spinner /></div>
-              ) : (() => {
-                type Row = { _id: string; name: string; email: string; extra: string; role: string }
-                const rows: Row[] = [
-                  ...(overviewRoleFilter === 'all' || overviewRoleFilter === 'patient'
-                    ? patients.map(p => ({
-                      _id: p._id,
-                      name: `${p.firstName} ${p.lastName}`,
-                      email: p.nationalId ?? '—',
-                      extra: p.bloodType ?? '—',
-                      role: 'patient',
-                    }))
-                    : []),
-                  ...(overviewRoleFilter === 'all' || overviewRoleFilter === 'doctor'
-                    ? doctors.map(d => ({
-                      _id: d._id,
-                      name: `${d.firstName} ${d.lastName}`,
-                      email: d.email,
-                      extra: d.specialization ?? '—',
-                      role: 'doctor',
-                    }))
-                    : []),
-                  ...(overviewRoleFilter === 'all' || overviewRoleFilter === 'receptionist'
-                    ? receptionists.map(r => ({
-                      _id: r._id,
-                      name: `${r.firstName} ${r.lastName}`,
-                      email: r.email,
-                      extra: r.hospitalId?.name ?? '—',
-                      role: 'receptionist',
-                    }))
-                    : []),
-                ]
-                const q = overviewSearch.toLowerCase()
-                const filtered = q
-                  ? rows.filter(r => r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q))
-                  : rows
-                const roleBadgeVariant = (role: string) =>
-                  role === 'doctor' ? 'default' : role === 'receptionist' ? 'secondary' : 'outline'
-                return (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Role</TableHead>
-                        <TableHead>Email / ID</TableHead>
-                        <TableHead>Details</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filtered.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={4} className="text-center text-gray-400 py-8">No users found</TableCell>
-                        </TableRow>
-                      ) : filtered.map(row => (
-                        <TableRow key={`${row.role}-${row._id}`}>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600">
-                                {row.name.charAt(0).toUpperCase()}
-                              </div>
-                              <span className="font-medium">{row.name}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={roleBadgeVariant(row.role)} className="capitalize">{row.role}</Badge>
-                          </TableCell>
-                          <TableCell className="text-gray-500 text-xs">{row.email}</TableCell>
-                          <TableCell className="text-gray-500 text-xs">{row.extra}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )
-              })()}
-            </CardContent>
-          </Card>
         </TabsContent>
 
         {/* Hospitals Tab */}
@@ -433,6 +473,125 @@ export default function FacilityManagement() {
           </Card>
         </TabsContent>
 
+        {/* NFC Cards Tab */}
+        <TabsContent value="cards">
+          <div className="space-y-4">
+            {/* Generate form */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Generate NFC Cards</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-end gap-3">
+                  <div className="space-y-1">
+                    <Label>Number of cards (1–100)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={generateCount}
+                      onChange={e => setGenerateCount(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                      className="w-32"
+                    />
+                  </div>
+                  <Button onClick={handleGenerateCards} disabled={generatingCards}>
+                    {generatingCards ? <Spinner size="sm" /> : <><CreditCard className="h-4 w-4 mr-1.5" />Generate</>}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Cards table */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <CardTitle>All NFC Cards ({nfcCards.length})</CardTitle>
+                  <div className="flex gap-1">
+                    {(['all', 'available', 'linked'] as const).map(f => (
+                      <Button
+                        key={f}
+                        size="sm"
+                        variant={cardStatusFilter === f ? 'default' : 'outline'}
+                        onClick={() => setCardStatusFilter(f)}
+                        className="capitalize"
+                      >
+                        {f}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="flex justify-center py-8"><Spinner /></div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Card Number</TableHead>
+                        <TableHead>NFC Chip</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Patient</TableHead>
+                        <TableHead>National ID</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead className="w-24"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {nfcCards
+                        .filter(c => cardStatusFilter === 'all' || (cardStatusFilter === 'linked' ? c.isLinked : !c.isLinked))
+                        .length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-gray-400 py-8">
+                            No cards found
+                          </TableCell>
+                        </TableRow>
+                      ) : nfcCards
+                        .filter(c => cardStatusFilter === 'all' || (cardStatusFilter === 'linked' ? c.isLinked : !c.isLinked))
+                        .map(c => (
+                          <TableRow key={c._id}>
+                            <TableCell className="font-mono font-medium">{c.cardNumber}</TableCell>
+                            <TableCell>
+                              {c.nfcUid
+                                ? <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5 font-mono">{c.nfcUid}</span>
+                                : <span className="text-xs text-gray-400 italic">Not scanned</span>}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={c.isLinked ? 'default' : 'secondary'}>
+                                {c.isLinked ? 'Linked' : 'Available'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {c.patientId
+                                ? `${c.patientId.firstName} ${c.patientId.lastName}`
+                                : <span className="text-gray-400">—</span>}
+                            </TableCell>
+                            <TableCell className="text-gray-500">
+                              {c.patientId?.nationalId ?? <span className="text-gray-400">—</span>}
+                            </TableCell>
+                            <TableCell className="text-gray-400 text-xs">
+                              {new Date(c.createdAt).toLocaleDateString()}
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                size="sm"
+                                variant={c.nfcUid ? 'outline' : 'default'}
+                                className="h-7 text-xs gap-1.5"
+                                onClick={() => openScanDialog(c)}
+                              >
+                                <Wifi className="h-3 w-3" />{c.nfcUid ? 'Re-scan' : 'Scan'}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
         {/* Admins Tab */}
         <TabsContent value="admins">
           <Card>
@@ -455,12 +614,13 @@ export default function FacilityManagement() {
                       <TableHead>Email</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead>Hospital</TableHead>
+                      <TableHead className="w-12"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {hospitalAdmins.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center text-gray-400 py-8">
+                        <TableCell colSpan={5} className="text-center text-gray-400 py-8">
                           No hospital admins yet
                         </TableCell>
                       </TableRow>
@@ -470,6 +630,17 @@ export default function FacilityManagement() {
                         <TableCell className="text-gray-500">{a.email}</TableCell>
                         <TableCell className="text-gray-500">{a.phoneNumber ?? '—'}</TableCell>
                         <TableCell>{a.hospitalId?.name ?? <span className="text-gray-400">—</span>}</TableCell>
+                        <TableCell>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-red-400 hover:text-red-600"
+                            aria-label="Delete admin"
+                            onClick={() => setDeleteAdminId(a._id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -488,6 +659,16 @@ export default function FacilityManagement() {
         confirmLabel="Delete"
         onConfirm={handleDeleteHospital}
         loading={deleting}
+      />
+
+      <ConfirmDialog
+        open={!!deleteAdminId}
+        onOpenChange={open => { if (!open) setDeleteAdminId(null) }}
+        title="Delete Hospital Admin"
+        description="This will permanently remove the hospital admin account and cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={handleDeleteAdmin}
+        loading={deletingAdmin}
       />
 
       {/* Hospital Dialog */}
@@ -608,6 +789,172 @@ export default function FacilityManagement() {
             <Button onClick={handleCreateAdmin} disabled={submitting}>
               {submitting ? <Spinner size="sm" /> : 'Create Admin'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Scan NFC Chip Dialog */}
+      <Dialog open={!!scanTarget} onOpenChange={open => { if (!open) closeScanDialog() }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Scan NFC Chip</DialogTitle>
+            <DialogDescription>
+              Tap the physical NFC card to read its chip ID and assign it to <span className="font-mono font-medium">{scanTarget?.cardNumber}</span>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Existing chip warning */}
+            {scanTarget?.nfcUid && scanStatus === 'idle' && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+                <p className="text-xs font-medium text-amber-700 mb-0.5">Already assigned</p>
+                <p className="font-mono text-sm text-amber-800">{scanTarget.nfcUid}</p>
+                <p className="text-xs text-amber-600 mt-1">Scanning a new card will replace this assignment.</p>
+              </div>
+            )}
+
+            {/* Idle */}
+            {scanStatus === 'idle' && (
+              <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-600 space-y-0.5">
+                <p className="font-medium text-sm text-blue-700 mb-1">How to scan:</p>
+                <p>1. Make sure the NFC bridge is running (<span className="font-mono">python nfc_bridge.py</span>)</p>
+                <p>2. Click "Start Scan" and place the NFC card on the ACR122U reader</p>
+                <p>3. The chip ID will be read automatically — confirm to save it</p>
+              </div>
+            )}
+
+            {/* Scanning — NFC animation + bridge status */}
+            {scanStatus === 'scanning' && (
+              <div className="flex flex-col items-center py-4 gap-3">
+                <div className="relative flex items-center justify-center">
+                  {bridgeStatus === 'connected' && (
+                    <>
+                      <span className="absolute inline-flex h-20 w-20 rounded-full bg-blue-100 opacity-75 animate-ping" />
+                      <span className="absolute inline-flex h-14 w-14 rounded-full bg-blue-200 opacity-60 animate-ping [animation-delay:0.3s]" />
+                    </>
+                  )}
+                  <div className={`relative flex h-10 w-10 items-center justify-center rounded-full ${bridgeStatus === 'unavailable' ? 'bg-gray-300' : 'bg-[#0055BB]'}`}>
+                    <Wifi className="h-5 w-5 text-white rotate-90" />
+                  </div>
+                </div>
+
+                {bridgeStatus === 'checking' && (
+                  <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                    <span className="h-3 w-3 rounded-full border-2 border-gray-300 border-t-gray-500 animate-spin inline-block" />
+                    Connecting to NFC bridge…
+                  </p>
+                )}
+                {bridgeStatus === 'connected' && (
+                  <div className="text-center space-y-0.5">
+                    <p className="text-xs text-green-600 flex items-center gap-1 justify-center">
+                      <CheckCircle2 className="h-3.5 w-3.5" />NFC reader connected
+                    </p>
+                    <p className="text-sm font-medium text-gray-600 animate-pulse">Place card on the reader…</p>
+                  </div>
+                )}
+                {bridgeStatus === 'unavailable' && (
+                  <div className="w-full space-y-3">
+                    <p className="text-xs text-amber-600 flex items-center gap-1 justify-center">
+                      <AlertCircle className="h-3.5 w-3.5" />NFC reader not detected
+                    </p>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-gray-700">Enter UID manually</label>
+                      <Input
+                        placeholder="e.g. 04ABCDEF123456"
+                        value={manualUid}
+                        onChange={e => setManualUid(e.target.value.toUpperCase())}
+                        autoFocus
+                        spellCheck={false}
+                        className="font-mono"
+                      />
+                      <p className="text-xs text-gray-400">Make sure <span className="font-mono">nfc_bridge.py</span> is running, or enter the UID from the card label.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Confirm */}
+            {scanStatus === 'confirm' && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 rounded-lg bg-green-50 border border-green-200 px-4 py-3">
+                  <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                  <div>
+                    <p className="text-xs text-green-600 font-medium">Card detected</p>
+                    <p className="font-mono text-sm font-semibold text-green-800 mt-0.5">{scanUid}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 text-center">
+                  Assign this chip to <span className="font-mono font-medium">{scanTarget?.cardNumber}</span>?
+                </p>
+              </div>
+            )}
+
+            {/* Saving */}
+            {scanStatus === 'saving' && (
+              <div className="flex items-center gap-3 rounded-lg bg-blue-50 border border-blue-200 px-4 py-4">
+                <div className="h-5 w-5 rounded-full border-2 border-blue-300 border-t-blue-500 animate-spin shrink-0" />
+                <p className="text-sm text-blue-700">Saving…</p>
+              </div>
+            )}
+
+            {/* Success */}
+            {scanStatus === 'success' && (
+              <div className="flex items-center gap-3 rounded-lg bg-green-50 border border-green-200 px-4 py-4">
+                <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-green-700">Chip assigned successfully</p>
+                  <p className="font-mono text-xs text-green-600 mt-0.5">{scanUid || manualUid}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Error */}
+            {scanStatus === 'error' && (
+              <div className="flex items-start gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-4">
+                <AlertCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-red-700">Failed</p>
+                  <p className="text-xs text-red-500 mt-0.5">{scanError}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeScanDialog}>
+              {scanStatus === 'success' ? 'Done' : 'Cancel'}
+            </Button>
+            {scanStatus === 'idle' && (
+              <Button onClick={handleScanNfc}>
+                <Wifi className="h-4 w-4 mr-1.5" />Start Scan
+              </Button>
+            )}
+            {scanStatus === 'scanning' && bridgeStatus !== 'unavailable' && (
+              <Button disabled>
+                <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin mr-2" />Scanning…
+              </Button>
+            )}
+            {scanStatus === 'scanning' && bridgeStatus === 'unavailable' && manualUid.trim() && (
+              <Button onClick={handleSaveUid}>
+                <CheckCircle2 className="h-4 w-4 mr-1.5" />Confirm
+              </Button>
+            )}
+            {scanStatus === 'confirm' && (
+              <Button onClick={handleSaveUid}>
+                <CheckCircle2 className="h-4 w-4 mr-1.5" />Confirm
+              </Button>
+            )}
+            {scanStatus === 'saving' && (
+              <Button disabled>
+                <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin mr-2" />Saving…
+              </Button>
+            )}
+            {scanStatus === 'error' && (
+              <Button onClick={handleScanNfc}>
+                <Wifi className="h-4 w-4 mr-1.5" />Try Again
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

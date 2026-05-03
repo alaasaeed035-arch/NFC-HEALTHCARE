@@ -7,7 +7,7 @@ import axios from 'axios';
 
 const AI_SERVICE_CONFIG = {
   baseURL: process.env.DDI_SERVICE_URL || 'http://localhost:8000',
-  timeout: 30000, // 30 seconds for AI processing
+  timeout: 120000, // 120 seconds for AI processing
   retries: 3,
   retryDelay: 1000, // 1 second between retries
 };

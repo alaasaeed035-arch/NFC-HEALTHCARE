@@ -1,364 +1,222 @@
-# NFC Healthcare Card System with AI Drug Conflict Checker
+# NFC Healthcare Card System
 
-A comprehensive healthcare management system with AI-powered drug interaction analysis.
+A full-stack healthcare management platform with NFC card integration, AI drug interaction checking, and a patient chatbot.
 
-## 🏗️ System Architecture
+## Architecture
 
-This system consists of **two backend services** working together:
-
-1. **Node.js/Express Backend** (Port 3000)
-   - Main healthcare system
-   - Patient, Doctor, Hospital management
-   - Medical records with MongoDB
-   - Authentication & authorization
-
-2. **FastAPI AI Service** (Port 8000)
-   - AI-powered drug conflict analysis
-   - FDA drug information integration
-   - Groq AI model for interaction checking
-   - Optional Langfuse observability
+Four services run together:
 
 ```
-┌─────────────┐
-│   Frontend  │
-│  (HTML/JS)  │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────────────┐      ┌──────────────────┐
-│  Node.js Backend    │─────▶│  FastAPI AI      │
-│  (Port 3000)        │      │  (Port 8000)     │
-│  - Medical Records  │      │  - Conflict Check│
-│  - Patient Data     │      │  - FDA Info      │
-│  - MongoDB          │      │  - Groq AI       │
-└─────────────────────┘      └──────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│              React / Vite Frontend  (Port 5173)             │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│           Node.js / Express Backend  (Port 3000)            │
+│  Auth · Patients · Doctors · Hospitals · Medical Records    │
+└────────┬──────────────────┬──────────────────┬─────────────┘
+         │                  │                  │
+         ▼                  ▼                  ▼
+┌────────────────┐ ┌────────────────┐ ┌────────────────┐
+│  DDI Service   │ │Chatbot Service │ │  NFC Bridge    │
+│   main.py      │ │  chatbot.py    │ │ nfc_bridge.py  │
+│  (Port 8000)   │ │  (Port 8001)   │ │  (Port 8002)   │
+│  Groq AI DDI   │ │ Gemini chatbot │ │  ACR122U USB   │
+└────────────────┘ └────────────────┘ └────────────────┘
 ```
 
-## 🚀 Quick Start
+## Prerequisites
 
-### Prerequisites
+- **Node.js** v18+
+- **Python** 3.8+
+- **MongoDB** (local or Atlas)
+- **Groq API Key** — [console.groq.com](https://console.groq.com/keys)
+- **Google Gemini API Key** — for the chatbot
+- **pyscard** — only if using a physical ACR122U NFC reader
 
-- **Node.js** (v16 or higher)
-- **Python** (3.8 or higher)
-- **MongoDB** (running locally or remote)
-- **Groq API Key** ([Get one here](https://console.groq.com/keys))
+## Installation
 
-### Installation
+### 1. Clone & install backend
 
-1. **Clone the repository**
-   ```bash
-   cd Nfc-healthcare-card-main
-   ```
-
-2. **Install Node.js dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Install Python dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Configure environment variables**
-   ```bash
-   # Copy the example file
-   copy .env.example .env
-   
-   # Edit .env and add your API keys
-   notepad .env
-   ```
-
-   **Required variables:**
-   ```env
-   GROQ_API_KEY=your_groq_api_key_here
-   MONGODB_URI=mongodb://localhost:27017/nfc-healthcare
-   ```
-
-### Running the System
-
-#### Option 1: Automated Startup (Recommended)
-
-```powershell
-.\start-services.ps1
+```bash
+cd Nfc-healthcare-card-main
+npm install
 ```
 
-This script will:
-- Check for required dependencies
-- Install packages if needed
-- Start both services in separate windows
-- Display access points
+### 2. Install Python dependencies
 
-#### Option 2: Manual Startup
+```bash
+pip install -r requirements.txt
+```
 
-**Terminal 1 - Node.js Backend:**
+For NFC hardware support:
+```bash
+pip install pyscard
+```
+
+### 3. Install frontend dependencies
+
+```bash
+cd vite-frontend
+npm install
+```
+
+### 4. Configure environment variables
+
+```bash
+copy .env.example .env
+```
+
+Edit `.env` with your values (see table below).
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `DB_URL` | Yes | MongoDB connection string |
+| `SECRET_KEY` | Yes | App secret |
+| `JWT_SECRET` | Yes | JWT signing secret |
+| `EMAIL_USER` | Yes | Gmail address for sending emails |
+| `EMAIL_PASSWORD` | Yes | Gmail app password |
+| `DDI_GROQ_API_KEY` | Yes | Groq API key for DDI service |
+| `GEMINI_API_KEY` | Yes | Google Gemini API key for chatbot |
+| `PORT` | No | Backend port (default: 3000) |
+| `FRONTEND_URL` | No | Frontend URL for email links (default: http://localhost:5173) |
+| `DDI_SERVICE_URL` | No | DDI service URL (default: http://localhost:8000) |
+| `CHATBOT_SERVICE_URL` | No | Chatbot service URL (default: http://localhost:8001) |
+
+## Running the System
+
+Open four terminals and run each service:
+
+**Terminal 1 — Node.js backend:**
 ```bash
 node index.js
 ```
 
-**Terminal 2 - Python AI Service:**
+**Terminal 2 — DDI AI service:**
 ```bash
 python main.py
 ```
 
-### Access Points
-
-- **Frontend**: http://localhost:3000/frontend_updated.html
-- **Node.js API**: http://localhost:3000/api
-- **AI Service**: http://localhost:8000
-- **AI Service Docs**: http://localhost:8000/docs (FastAPI Swagger UI)
-
-# Service runs on http://localhost:8000
+**Terminal 3 — Chatbot service:**
+```bash
+python chatbot.py
 ```
 
-### 3. Frontend (Next.js)
+**Terminal 4 — React frontend:**
 ```bash
-# Navigate to frontend directory
-cd nfc-healthcare-frontend
-
-# Install dependencies
-npm install
-
-# Start the development server
+cd vite-frontend
 npm run dev
-# Frontend runs on http://localhost:3002
 ```
 
-## 🌐 API Endpoints
-
-### Frontend Access
-- **Dashboard**: `http://localhost:3002/dashboard`
-- **Login**: `http://localhost:3002/login`
-- **AI Conflict Checker**: `http://localhost:3002/ai-conflict`
-
-### Backend API
-- `POST /auth/signup` - Register new user
-- `POST /auth/signin` - Login user
-- `POST /hospital` - Create hospital
-- `GET /patient` - Get all patients
-- `POST /medical-record` - Create medical record (with AI conflict check)
-- `GET /medical-record/:id` - Get medical record by ID
-- `PUT /medical-record/:id` - Update medical record
-- `DELETE /medical-record/:id` - Delete medical record
-- `POST /api/ai-conflict/check-conflict` - Check drug conflicts
-- `GET /api/ai-conflict/drug-info/:drugName` - Get FDA drug information
-- `GET /api/ai-conflict/health` - Check AI service health
-
-### AI Service API
-- `POST /check-conflict` - Analyze drug conflicts
-- `GET /drug-info/{drug_name}` - Get FDA drug information
-- `GET /` - Service status
-- `GET /docs` - Interactive API documentation
-
-## 🤖 AI Conflict Checking Features
-
-### Automatic Analysis
-When creating a medical record with medications, the system automatically:
-1. Checks each medication against existing treatments
-2. Queries FDA database for drug information
-3. Uses Groq AI to analyze potential interactions
-4. Stores analysis results in the medical record
-
-### Severity Levels
-- **None**: No conflicts detected
-- **Low**: Minor interactions, monitor patient
-- **Moderate**: Significant interaction, caution advised
-- **High**: Serious interaction, consider alternatives
-- **Critical**: Dangerous interaction, avoid combination
-
-### Analysis Output
-- Conflict detection (yes/no)
-- Severity assessment
-- Detailed analysis explanation
-- Clinical recommendations
-- Specific drug interactions
-- FDA drug information
-
-## 🗄️ Database Schema
-
-### Medical Record (MongoDB)
-```javascript
-{
-  patientId: ObjectId,
-  doctorId: ObjectId,
-  hospitalId: ObjectId,
-  diagnosis: String,
-  treatment: String,
-  medications: [{
-    name: String,
-    dosage: String,
-    duration: String
-  }],
-  aiAnalysis: {
-    hasConflict: Boolean,
-    severity: String,
-    analysis: String,
-    recommendations: [String],
-    interactions: [String],
-    checkedAt: Date,
-    serviceAvailable: Boolean
-  },
-  visitDate: Date,
-  timestamps: true
-}
-```
-
-## 🔧 Configuration
-
-### Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GROQ_API_KEY` | Yes | API key for Groq AI service |
-| `MONGODB_URI` | Yes | MongoDB connection string |
-| `AI_SERVICE_URL` | No | AI service URL (default: http://localhost:8000) |
-| `PORT` | No | Node.js server port (default: 3000) |
-| `LANGFUSE_PUBLIC_KEY` | No | Langfuse observability (optional) |
-| `LANGFUSE_SECRET_KEY` | No | Langfuse observability (optional) |
-
-### Groq API Key Setup
-
-1. Visit [Groq Console](https://console.groq.com/keys)
-2. Create an account or sign in
-3. Generate a new API key
-4. Add to `.env` file: `GROQ_API_KEY=your_key_here`
-
-## 🧪 Testing
-
-### Test AI Service Health
+**Terminal 5 — NFC bridge** *(only needed if using ACR122U hardware)*:
 ```bash
-curl http://localhost:3000/api/ai-conflict/health
+python nfc_bridge.py
 ```
 
-### Test Drug Information
-```bash
-curl http://localhost:3000/api/ai-conflict/drug-info/aspirin
-```
+## Access Points
 
-### Test Conflict Checking
-```bash
-curl -X POST http://localhost:3000/api/ai-conflict/check-conflict \
-  -H "Content-Type: application/json" \
-  -d '{
-    "patientId": "demo-patient-id",
-    "currentMedications": [
-      {"name": "Aspirin", "dosage": "81mg", "duration": "Daily"}
-    ],
-    "newMedication": {
-      "name": "Warfarin",
-      "dosage": "5mg",
-      "duration": "Daily"
-    }
-  }'
-```
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:5173 |
+| Backend API | http://localhost:3000 |
+| DDI Service docs | http://localhost:8000/docs |
+| Chatbot Service docs | http://localhost:8001/docs |
+| NFC Bridge | http://localhost:8002/nfc/card |
 
-## 🛠️ Troubleshooting
+## User Roles
 
-### AI Service Not Available
-**Error**: `AI service is not available`
+| Role | Access |
+|---|---|
+| `super_admin` | Full system access |
+| `admin` | Facility management |
+| `admin_hospital` | Hospital staff management |
+| `doctor` | Patient queue, medical records, DDI checker |
+| `receptionist` | Patient registration, NFC scanning |
+| `patient` | Own health passport, chatbot |
 
-**Solutions**:
-1. Check if Python AI service is running on port 8000
-2. Verify `GROQ_API_KEY` is set in `.env`
-3. Check firewall settings
-4. Review AI service logs for errors
+## Key Features
 
-### MongoDB Connection Failed
-**Error**: `MongoNetworkError: connect ECONNREFUSED`
+### NFC Card Integration
+Receptionists can scan a patient's NFC card (via ACR122U reader) to instantly pull up their profile. The NFC Bridge (`nfc_bridge.py`) reads the card UID and exposes it over HTTP so the browser frontend can poll it without special browser APIs.
 
-**Solutions**:
-1. Ensure MongoDB is running
-2. Check `MONGODB_URI` in `.env`
-3. Verify MongoDB port (default: 27017)
+### AI Drug Interaction Checker (DDI)
+When a doctor adds a new medication, the DDI service checks it against the patient's existing treatments by:
+1. Fetching drug info from the FDA and RxNorm databases (in parallel)
+2. Sending the combined data to Groq AI (`llama-3.3-70b-versatile`) for interaction analysis
+3. Returning a severity rating: `none` / `low` / `moderate` / `high` / `critical`
 
-### Port Already in Use
-**Error**: `EADDRINUSE: address already in use`
+Results are stored in MongoDB and shown in the Doctor Dashboard's Drug Interaction Conflict Log.
 
-**Solutions**:
-1. Stop other services using ports 3000 or 8000
-2. Change ports in configuration
-3. Kill existing processes:
-   ```powershell
-   # Find process using port 3000
-   netstat -ano | findstr :3000
-   # Kill process (replace PID)
-   taskkill /PID <PID> /F
-   ```
+### Patient Chatbot
+Patients can ask medical questions through a floating chat widget. The chatbot has access to the patient's own medical records and responds using Google Gemini.
 
-## 📊 Monitoring & Observability
+### Email Verification
+Doctor accounts require email verification before login. The verification link opens the frontend (`/verify-account?token=...`) which completes the verification via the backend API — works on any device, including mobile.
 
-### Langfuse Integration (Optional)
+### Password Reset
+Any staff member (doctor, receptionist, admin) can reset their password via OTP sent to their email. Appears automatically after 2 failed login attempts.
 
-For AI observability and monitoring:
+## Project Structure
 
-1. Sign up at [Langfuse Cloud](https://cloud.langfuse.com)
-2. Get your API keys
-3. Add to `.env`:
-   ```env
-   LANGFUSE_PUBLIC_KEY=pk-lf-...
-   LANGFUSE_SECRET_KEY=sk-lf-...
-   ```
-
-Features:
-- Request tracing
-- Cost tracking
-- Latency monitoring
-- Quality evaluation
-
-## 🔐 Security Notes
-
-- **Never commit `.env` file** - Contains sensitive API keys
-- **Use environment variables** - Don't hardcode credentials
-- **Validate user input** - Prevent injection attacks
-- **Implement authentication** - Secure medical data access
-- **Use HTTPS in production** - Encrypt data in transit
-
-## 📝 Development
-
-### Project Structure
 ```
 Nfc-healthcare-card-main/
+├── index.js                  # Node.js entry point
+├── main.py                   # DDI AI service (Port 8000)
+├── chatbot.py                # Patient chatbot service (Port 8001)
+├── nfc_bridge.py             # NFC hardware bridge (Port 8002)
 ├── src/
 │   ├── modules/
-│   │   ├── medicalRecord/
-│   │   │   ├── medicalRecord.controller.js
-│   │   │   ├── aiConflictChecker.service.js
-│   │   │   └── aiConflict.router.js
-│   │   └── ...
-│   └── utils/
-│       └── ai-service-config.js
+│   │   ├── auth/             # Authentication & user profiles
+│   │   ├── hospital/         # Hospital management
+│   │   ├── medicalRecord/    # Medical records & DDI integration
+│   │   ├── ddi/              # DDI report routes
+│   │   ├── chatbot/          # Chatbot proxy routes
+│   │   ├── admin/            # Admin operations
+│   │   ├── admin_hospital/   # Hospital admin operations
+│   │   └── Receptionist/     # Receptionist operations
+│   ├── middleware/           # Auth, validation, error handling
+│   └── utils/                # Helpers, email, tokens, enums
 ├── db/
-│   └── models/
-│       └── medicalRecord.model.js
-├── main.py                    # FastAPI AI service
-├── frontend_updated.html      # Frontend UI
-├── index.js                   # Node.js entry point
-├── start-services.ps1         # Startup script
-└── .env.example               # Environment template
+│   ├── models/
+│   │   ├── patient.model.js
+│   │   ├── doctor.model.js
+│   │   ├── user.model.js     # Staff (admin, receptionist)
+│   │   ├── hospital.model.js
+│   │   ├── medicalRecord.model.js
+│   │   ├── conflictAnalysis.model.js
+│   │   └── patientChatLog.model.js
+│   └── connection.js
+├── vite-frontend/            # React + TypeScript + Tailwind frontend
+│   └── src/
+│       ├── pages/
+│       │   ├── auth/         # Login, signup, verify account
+│       │   ├── doctor/       # Doctor dashboard
+│       │   ├── receptionist/ # Receptionist dashboard
+│       │   ├── patient/      # Health passport
+│       │   ├── admin/        # Facility management
+│       │   ├── admin_hospital/ # Staff management
+│       │   └── profile/      # User profile page
+│       ├── components/       # Shared UI components
+│       └── api/              # Axios client
+├── .env.example              # Environment variable template
+└── requirements.txt          # Python dependencies
 ```
 
-### Adding New Features
+## Troubleshooting
 
-1. **Backend**: Add routes in `src/modules/`
-2. **AI Service**: Extend `main.py` endpoints
-3. **Frontend**: Update `frontend_updated.html`
-4. **Database**: Modify models in `db/models/`
+**DDI timeout** — the DDI service fetches from FDA and RxNorm; a slow internet connection can cause delays. Timeouts are set to 120 seconds.
 
-## 📄 License
+**NFC reader not detected** — ensure `pyscard` is installed and the ACR122U drivers are installed. Run `python nfc_bridge.py` and check the `/health` endpoint.
 
-[Add your license here]
+**Port already in use:**
+```powershell
+netstat -ano | findstr :3000
+taskkill /PID <PID> /F
+```
 
-## 🤝 Contributing
+**MongoDB connection failed** — check `DB_URL` in `.env` and ensure your IP is whitelisted in MongoDB Atlas.
 
-[Add contribution guidelines here]
-
-## 📞 Support
-
-For issues or questions:
-- Check the troubleshooting section
-- Review API documentation
-- Check service logs for errors
-
----
-
-**Built with ❤️ using Node.js, Python, MongoDB, and AI**
+**Verification email link not working on mobile** — set `FRONTEND_URL` in `.env` to your deployed frontend URL or your local network IP (e.g. `http://192.168.1.x:5173`) and start Vite with `npm run dev -- --host`.

@@ -23,6 +23,11 @@ export const deleteAdminSchema = joi.object({
     adminId : generalFields.objectId.required(),
 });
 
+// delete hospital admin validation
+export const deleteHospitalAdminSchema = joi.object({
+    adminId : generalFields.objectId.required(),
+});
+
 // create hospital admin validation
 export const createHospitalAdminSchema = joi.object({
     fullName : generalFields.name.required(),

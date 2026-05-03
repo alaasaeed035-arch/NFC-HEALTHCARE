@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const client = axios.create({ baseURL: '/', timeout: 30000 })
+const client = axios.create({ baseURL: '/', timeout: 120000 })
 
 client.interceptors.request.use(config => {
   const token = localStorage.getItem('nfc_token')

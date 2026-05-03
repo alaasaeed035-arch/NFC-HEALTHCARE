@@ -4,12 +4,15 @@ import DashboardLayout from '@/components/layout/DashboardLayout'
 import ProtectedRoute from './ProtectedRoute'
 import LoginPage from '@/pages/auth/LoginPage'
 import DoctorSignupPage from '@/pages/auth/DoctorSignupPage'
+import PatientSignupPage from '@/pages/auth/PatientSignupPage'
 import HealthPassport from '@/pages/patient/HealthPassport'
 import DoctorDashboard from '@/pages/doctor/DoctorDashboard'
 import ReceptionistDashboard from '@/pages/receptionist/ReceptionistDashboard'
 import StaffManagement from '@/pages/admin_hospital/StaffManagement'
 import FacilityManagement from '@/pages/admin/FacilityManagement'
-import GlobalOverview from '@/pages/super_admin/GlobalOverview'
+import ProfilePage from '@/pages/profile/ProfilePage'
+import VerifyAccountPage from '@/pages/auth/VerifyAccountPage'
+import PharmacistDashboard from '@/pages/pharmacist/PharmacistDashboard'
 
 export default function AppRouter() {
   return (
@@ -18,6 +21,8 @@ export default function AppRouter() {
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup/doctor" element={<DoctorSignupPage />} />
+        <Route path="/signup/patient" element={<PatientSignupPage />} />
+        <Route path="/verify-account" element={<VerifyAccountPage />} />
 
         <Route
           path="/patient/health-passport"
@@ -75,11 +80,22 @@ export default function AppRouter() {
         />
 
         <Route
-          path="/super-admin/overview"
+          path="/profile"
           element={
-            <ProtectedRoute allowedRoles={['super_admin']}>
+            <ProtectedRoute allowedRoles={['patient', 'doctor', 'receptionist', 'admin_hospital', 'admin', 'pharmacist']}>
               <DashboardLayout>
-                <GlobalOverview />
+                <ProfilePage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/pharmacist/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={['pharmacist']}>
+              <DashboardLayout>
+                <PharmacistDashboard />
               </DashboardLayout>
             </ProtectedRoute>
           }

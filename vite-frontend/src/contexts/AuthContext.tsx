@@ -27,7 +27,7 @@ function getRoleHome(role: Role): string {
     case 'receptionist': return '/receptionist/dashboard'
     case 'admin_hospital': return '/admin-hospital/staff'
     case 'admin': return '/admin/facilities'
-    case 'super_admin': return '/super-admin/overview'
+    case 'pharmacist': return '/pharmacist/dashboard'
     default: return '/login'
   }
 }
@@ -56,7 +56,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (credentials: LoginCredentials) => {
     if (credentials.loginType === 'patient') {
       const res = await client.post('/auth/login/patient', {
-        nationalId: credentials.nationalId,
+        email: credentials.email,
+        password: credentials.password,
       })
       const tok: string = res.data.token
       if (!tok) throw new Error('No token received')
@@ -92,6 +93,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: profile.role as Role,
         hospitalId: profile.hospitalId,
         specialization: profile.specialization,
+      }
+      if (userData.role === 'super_admin') {
+        localStorage.removeItem('nfc_token')
+        throw new Error('Super Admin access is not available through this portal.')
       }
       localStorage.setItem('nfc_user', JSON.stringify(userData))
       setToken(tok)

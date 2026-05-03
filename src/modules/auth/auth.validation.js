@@ -2,7 +2,7 @@ import joi from 'joi';
 import { generalFields } from '../../middleware/vaildation.js';
 
 
-// patient signup validation
+// patient signup validation (staff-initiated — cardId required)
 export const signupPatientSchema = joi.object({
     firstName : generalFields.name.required(),
     lastName : generalFields.name.required(),
@@ -18,9 +18,47 @@ export const signupPatientSchema = joi.object({
     ChronicDiseases : generalFields.ChronicDiseases.optional(),
 })
 
-// patient login validation
-export const loginPatientSchema = joi.object({
+// patient self-registration (public route — stricter emergency contact)
+export const selfSignupPatientSchema = joi.object({
+    firstName : generalFields.name.required(),
+    lastName : generalFields.name.required(),
     nationalId : generalFields.nationalId.required(),
+    email : generalFields.email.required(),
+    password : joi.string().min(8).required().messages({
+        'string.min': 'Password must be at least 8 characters',
+    }),
+    gender: generalFields.gender.required(),
+    dateOfBirth: generalFields.dateOfBirth.required(),
+    bloodType: generalFields.bloodType.optional(),
+    phoneNumber : generalFields.phoneNumber.required(),
+    address : generalFields.address.required(),
+    emergencyContact : joi.object({
+        name: joi.string().trim().required(),
+        phone: joi.string().pattern(/^01[0-2,5]{1}[0-9]{8}$/).required().messages({
+            'string.pattern.base': 'Emergency contact phone must be a valid Egyptian mobile number',
+        }),
+        relation: joi.string().trim().required(),
+    }).required(),
+    cardId : generalFields.cardId.optional(),
+    surgerys : generalFields.surgerys.optional(),
+    ChronicDiseases : generalFields.ChronicDiseases.optional(),
+})
+
+// patient OTP verification
+export const verifyPatientOtpSchema = joi.object({
+    email : generalFields.email.required(),
+    otp : generalFields.otp.required(),
+})
+
+// patient resend OTP
+export const resendPatientOtpSchema = joi.object({
+    email : generalFields.email.required(),
+})
+
+// patient login validation (email + password)
+export const loginPatientSchema = joi.object({
+    email : generalFields.email.required(),
+    password : joi.string().required(),
 })
 
 // doctor signup validation

@@ -5,7 +5,23 @@
       "Bash(npm run *)",
       "mcp__codex__codex",
       "Bash(curl -s \"http://localhost:3000/auth/receptionists\" -H \"token: invalid\")",
-      "Bash(curl -s -o /dev/null -w \"HTTP: %{http_code}\\\\n\" \"http://localhost:3000/auth/receptionists\" -H \"token: invalid\")"
+      "Bash(curl -s -o /dev/null -w \"HTTP: %{http_code}\\\\n\" \"http://localhost:3000/auth/receptionists\" -H \"token: invalid\")",
+      "Bash(nslookup *)",
+      "WebSearch",
+      "WebFetch(domain:docs.nvidia.com)",
+      "WebFetch(domain:build.nvidia.com)",
+      "WebFetch(domain:catalog.ngc.nvidia.com)",
+      "Bash(python -c ' *)",
+      "WebFetch(domain:console.groq.com)",
+      "Bash(npx tsc *)",
+      "Bash(node -e ' *)",
+      "Bash(python3 *)",
+      "Bash(python *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\IT STORE\\\\Desktop\\\\Nfc-healthcare-card-main\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\IT STORE\\\\Desktop\\\\Nfc-healthcare-card-main\" -Recurse -Filter \"*pharmacy*\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object FullName)",
+      "Bash(node *)"
     ]
   }
 }

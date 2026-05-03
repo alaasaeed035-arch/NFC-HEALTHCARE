@@ -3,3 +3,8 @@ export * from "./models/hospital.model.js";
 export * from "./models/user.model.js"
 export * from "./models/medicalRecord.model.js"
 export * from "./models/doctor.model.js"
+export * from "./models/conflictAnalysis.model.js"
+export * from "./models/patientChatLog.model.js"
+export * from "./models/pharmacyInventory.model.js"
+export * from "./models/prescription.model.js"
+export * from "./models/card.model.js"

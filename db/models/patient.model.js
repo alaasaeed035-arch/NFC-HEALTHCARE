@@ -46,6 +46,22 @@ const patientSchema = new Schema(
       phone: String,
       relation: String,
     },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      unique: true,
+      sparse: true,
+    },
+    password: {
+      type: String,
+    },
+    otp: {
+      type: String,
+    },
+    otpExpires: {
+      type: Date,
+    },
     cardId: {
       type: String,
       trim: true,
@@ -72,7 +88,7 @@ const patientSchema = new Schema(
     },
     isVerified: {
       type: Boolean,
-      default: true,
+      default: false,
     },
   },
   { timestamps: true }

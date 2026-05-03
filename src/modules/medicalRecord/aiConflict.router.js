@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { checkDrugConflict, getDrugInformation } from './aiConflictChecker.service.js';
 import { checkAIServiceHealth } from '../../utils/ai-service-config.js';
-import { Patient } from '../../../db/index.js';
+import { ConflictAnalysis, Patient } from '../../../db/index.js';
 import { AppError } from '../../utils/appError.js';
 import { messages } from '../../utils/constant/messages.js';
 import { isAuthenticated } from '../../middleware/authentication.js';
@@ -53,6 +53,27 @@ router.post('/check-conflict',
         );
 
         console.log('DDI service result:', JSON.stringify(result, null, 2));
+
+        // Persist to conflict_analyses so doctor and patient can review later
+        const patientAge = patient.dateOfBirth
+            ? Math.floor((Date.now() - new Date(patient.dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+            : undefined;
+        ConflictAnalysis.create({
+            patient_id: finalPatientId.toString(),
+            patient_name: `${patient.firstName} ${patient.lastName}`,
+            patient_age: patientAge,
+            doctor_id: req.authUser._id.toString(),
+            new_treatment: finalNewMed,
+            current_medications: finalCurrentMeds,
+            analysis: {
+                has_conflict: result.analysis?.has_conflict || false,
+                severity: result.analysis?.severity || 'unknown',
+                analysis: result.analysis?.analysis || '',
+                recommendations: result.analysis?.recommendations || [],
+                interactions: result.analysis?.interactions || [],
+            },
+            created_at: new Date(),
+        }).catch(err => console.error('Failed to persist conflict analysis:', err.message));
 
         return res.status(200).json({
             success: true,

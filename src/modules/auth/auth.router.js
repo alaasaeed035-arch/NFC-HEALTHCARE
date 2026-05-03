@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { isValid } from "../../middleware/vaildation.js";
-import { forgetDoctorPasswordSchema, loginPatientSchema, loginSchema, resetDoctorPasswordSchema, signupDoctorSchema, signupPatientSchema, updateDoctorProfileSchema, updatePatientProfileSchema } from "./auth.validation.js";
+import { forgetDoctorPasswordSchema, loginPatientSchema, loginSchema, resetDoctorPasswordSchema, resendPatientOtpSchema, selfSignupPatientSchema, signupDoctorSchema, signupPatientSchema, updateDoctorProfileSchema, updatePatientProfileSchema, verifyPatientOtpSchema } from "./auth.validation.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { forgetPasswordDoctor, getPatientProfile, getProfileDoctor, login, loginPatient, signupDoctor, signupPatient, updateDoctorProfile, updatePatientProfile, verifyDoctorAccount, verifyOtpAndResetPasswordDoctor, getAllPatients, getAllDoctors, getAllReceptionists, getMyProfile, getPatientByNationalId } from "./auth.controller.js";
+import { forgetPasswordDoctor, forgetPasswordStaff, resetPasswordStaff, getPatientProfile, getProfileDoctor, login, loginPatient, selfSignupPatient, verifyPatientOtp, resendPatientOtp, signupDoctor, signupPatient, updateDoctorProfile, updatePatientProfile, verifyDoctorAccount, verifyOtpAndResetPasswordDoctor, getAllPatients, getAllDoctors, getAllReceptionists, getMyProfile, getPatientByNationalId, getPatientByCardId, getPatientByNfcUid } from "./auth.controller.js";
 import { isAuthenticated } from "../../middleware/authentication.js";
 import { isAuthorized } from "../../middleware/autheraization.js";
 import { roles } from "../../utils/constant/enum.js";
@@ -11,7 +11,25 @@ import { roles } from "../../utils/constant/enum.js";
 
 const authRouter = Router();
 
-// patient signup route
+// patient self-registration (public — email + password + OTP)
+authRouter.post('/signup/patient/self',
+    isValid(selfSignupPatientSchema),
+    asyncHandler(selfSignupPatient)
+);
+
+// patient OTP verification (public)
+authRouter.post('/verify-patient-otp',
+    isValid(verifyPatientOtpSchema),
+    asyncHandler(verifyPatientOtp)
+);
+
+// patient resend OTP (public)
+authRouter.post('/resend-patient-otp',
+    isValid(resendPatientOtpSchema),
+    asyncHandler(resendPatientOtp)
+);
+
+// patient signup route (staff-initiated)
 authRouter.post('/signup/patient',
     isAuthenticated(),
     isAuthorized([roles.RECEPTIONIST, roles.ADMIN_HOSPITAL, roles.ADMIN, roles.SUPER_ADMIN]),
@@ -57,6 +75,12 @@ authRouter.post('/doctor/reset-password',
     isValid(resetDoctorPasswordSchema),
     asyncHandler(verifyOtpAndResetPasswordDoctor)
 )
+
+// forget password — any staff role (doctor, receptionist, admin)
+authRouter.post('/staff/forget-password', asyncHandler(forgetPasswordStaff));
+
+// reset password — any staff role
+authRouter.post('/staff/reset-password', asyncHandler(resetPasswordStaff));
 
 // update patient password route
 authRouter.put('/patient/update',
@@ -104,6 +128,18 @@ authRouter.get('/me',
 authRouter.get('/patient/by-national-id/:nationalId',
     isAuthenticated(),
     asyncHandler(getPatientByNationalId)
+);
+
+// get patient by NFC card UID (legacy — patient.cardId lookup)
+authRouter.get('/patient/by-card-id/:cardId',
+    isAuthenticated(),
+    asyncHandler(getPatientByCardId)
+);
+
+// get patient by physical NFC chip UID (ACR122U scan → Card.nfcUid → Patient)
+authRouter.get('/patient/by-nfc-uid/:nfcUid',
+    isAuthenticated(),
+    asyncHandler(getPatientByNfcUid)
 );
 
 export default authRouter;
