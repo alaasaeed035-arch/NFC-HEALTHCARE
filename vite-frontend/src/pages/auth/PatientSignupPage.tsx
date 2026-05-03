@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Activity, CheckCircle, AlertCircle, X } from 'lucide-react'
+import React, { useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Activity, AlertCircle, X, Eye, EyeOff, Wifi } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
@@ -16,6 +16,9 @@ interface FormData {
   lastName: string
   nationalId: string
   cardId: string
+  email: string
+  password: string
+  confirmPassword: string
   gender: string
   dateOfBirth: string
   bloodType: string
@@ -31,6 +34,9 @@ interface FormErrors {
   lastName?: string
   nationalId?: string
   cardId?: string
+  email?: string
+  password?: string
+  confirmPassword?: string
   gender?: string
   dateOfBirth?: string
   phoneNumber?: string
@@ -42,6 +48,7 @@ interface FormErrors {
 
 const EMPTY: FormData = {
   firstName: '', lastName: '', nationalId: '', cardId: '',
+  email: '', password: '', confirmPassword: '',
   gender: '', dateOfBirth: '', bloodType: '',
   phoneNumber: '', address: '',
   ecName: '', ecPhone: '', ecRelation: '',
@@ -49,6 +56,7 @@ const EMPTY: FormData = {
 
 const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
 const PHONE_RE = /^01[0-2,5]{1}[0-9]{8}$/
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 // ─── Tag input ────────────────────────────────────────────────────────────────
 
@@ -108,8 +116,6 @@ function TagInput({
   )
 }
 
-// ─── Field wrapper ────────────────────────────────────────────────────────────
-
 function Field({
   label,
   error,
@@ -131,8 +137,6 @@ function Field({
   )
 }
 
-// ─── Section header ───────────────────────────────────────────────────────────
-
 function Section({ title }: { title: string }) {
   return (
     <div className="pt-2 pb-1 border-b border-gray-100">
@@ -141,16 +145,189 @@ function Section({ title }: { title: string }) {
   )
 }
 
+// ─── OTP Verification Screen ──────────────────────────────────────────────────
+
+function OtpScreen({
+  email,
+  onVerified,
+}: {
+  email: string
+  onVerified: () => void
+}) {
+  const [otp, setOtp] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [resending, setResending] = useState(false)
+  const [error, setError] = useState('')
+  const [resendMsg, setResendMsg] = useState('')
+
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!otp.trim()) { setError('Please enter the verification code'); return }
+    setLoading(true); setError('')
+    try {
+      const res = await client.post('/auth/verify-patient-otp', { email, otp: otp.trim() })
+      // auto-login: store token and load profile
+      const tok: string = res.data.token
+      if (tok) {
+        localStorage.setItem('nfc_token', tok)
+        const profileRes = await client.get('/auth/me')
+        const patientData = profileRes.data.data
+        const userData = {
+          _id: patientData._id,
+          firstName: patientData.firstName,
+          lastName: patientData.lastName,
+          role: 'patient' as const,
+        }
+        localStorage.setItem('nfc_user', JSON.stringify(userData))
+      }
+      onVerified()
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      setError(e?.response?.data?.message ?? 'Verification failed. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleResend = async () => {
+    setResending(true); setError(''); setResendMsg('')
+    try {
+      await client.post('/auth/resend-patient-otp', { email })
+      setResendMsg('A new code has been sent to your email.')
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      setError(e?.response?.data?.message ?? 'Failed to resend code.')
+    } finally {
+      setResending(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] px-6">
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-10 max-w-md w-full">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-50 mx-auto mb-4">
+          <Activity className="h-8 w-8 text-[#0055BB]" />
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-1 text-center">Verify your email</h2>
+        <p className="text-gray-500 text-sm mb-6 text-center">
+          We sent a 6-digit code to <span className="font-medium text-gray-700">{email}</span>. Enter it below to activate your account.
+        </p>
+        <form onSubmit={handleVerify} className="space-y-4">
+          <div className="space-y-1">
+            <Label>Verification Code</Label>
+            <Input
+              type="text"
+              inputMode="numeric"
+              placeholder="6-digit code"
+              value={otp}
+              onChange={e => { setOtp(e.target.value); setError('') }}
+              maxLength={6}
+              autoFocus
+              className="text-center text-lg tracking-widest"
+            />
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2.5 text-sm text-red-700">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {resendMsg && (
+            <p className="text-xs text-green-600 text-center">{resendMsg}</p>
+          )}
+
+          <Button type="submit" className="w-full h-10" disabled={loading}>
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                Verifying...
+              </span>
+            ) : 'Verify & Sign In'}
+          </Button>
+        </form>
+
+        <p className="mt-4 text-center text-sm text-gray-500">
+          Didn't receive a code?{' '}
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resending}
+            className="text-[#0055BB] font-medium hover:underline disabled:opacity-50"
+          >
+            {resending ? 'Sending...' : 'Resend'}
+          </button>
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PatientSignupPage() {
+  const navigate = useNavigate()
   const [form, setForm] = useState<FormData>(EMPTY)
   const [errors, setErrors] = useState<FormErrors>({})
   const [surgerys, setSurgerys] = useState<string[]>([])
   const [chronicDiseases, setChronicDiseases] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [apiError, setApiError] = useState('')
-  const [success, setSuccess] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [otpEmail, setOtpEmail] = useState('')
+  const [verified, setVerified] = useState(false)
+  const [nfcScanning, setNfcScanning] = useState(false)
+  const [nfcError, setNfcError] = useState('')
+  const nfcActiveRef = useRef(false)
+
+  const handleScanNfc = async () => {
+    if (!('NDEFReader' in window)) {
+      setNfcError('NFC not supported on this device. Please enter the card number manually.')
+      return
+    }
+    setNfcScanning(true)
+    setNfcError('')
+    nfcActiveRef.current = true
+    try {
+      const ndef = new (window as unknown as {
+        NDEFReader: new () => {
+          scan: () => Promise<void>
+          onreading: ((e: { message: { records: { recordType: string; data: ArrayBuffer }[] } }) => void) | null
+        }
+      }).NDEFReader()
+      await ndef.scan()
+      ndef.onreading = ({ message }) => {
+        if (!nfcActiveRef.current) return
+        nfcActiveRef.current = false
+        for (const record of message.records) {
+          if (record.recordType === 'text') {
+            const decoder = new TextDecoder()
+            const text = decoder.decode(record.data)
+            set('cardId', text.trim())
+            setNfcScanning(false)
+            return
+          }
+        }
+        setNfcError('No card number found on this NFC chip.')
+        setNfcScanning(false)
+      }
+      // Auto-stop after 15 seconds
+      setTimeout(() => {
+        if (!nfcActiveRef.current) return
+        nfcActiveRef.current = false
+        setNfcScanning(false)
+        setNfcError('Scan timed out. Please try again.')
+      }, 15000)
+    } catch (err: unknown) {
+      nfcActiveRef.current = false
+      const e = err as { message?: string }
+      setNfcError(e?.message ?? 'Failed to start NFC scan.')
+      setNfcScanning(false)
+    }
+  }
 
   const set = (field: keyof FormData, value: string) => {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -164,6 +341,24 @@ export default function PatientSignupPage() {
     if (!form.firstName.trim())  e.firstName  = 'First name is required'
     if (!form.lastName.trim())   e.lastName   = 'Last name is required'
     if (!form.nationalId.trim()) e.nationalId = 'National ID is required'
+
+    if (!form.email.trim()) {
+      e.email = 'Email is required'
+    } else if (!EMAIL_RE.test(form.email.trim())) {
+      e.email = 'Enter a valid email address'
+    }
+
+    if (!form.password) {
+      e.password = 'Password is required'
+    } else if (form.password.length < 8) {
+      e.password = 'Password must be at least 8 characters'
+    }
+
+    if (!form.confirmPassword) {
+      e.confirmPassword = 'Please confirm your password'
+    } else if (form.password !== form.confirmPassword) {
+      e.confirmPassword = 'Passwords do not match'
+    }
 
     if (!form.gender) e.gender = 'Gender is required'
 
@@ -203,6 +398,8 @@ export default function PatientSignupPage() {
         firstName:    form.firstName.trim(),
         lastName:     form.lastName.trim(),
         nationalId:   form.nationalId.trim(),
+        email:        form.email.trim().toLowerCase(),
+        password:     form.password,
         cardId:       form.cardId.trim() || undefined,
         gender:       form.gender,
         dateOfBirth:  form.dateOfBirth,
@@ -217,7 +414,7 @@ export default function PatientSignupPage() {
         surgerys:        surgerys.length > 0 ? surgerys : undefined,
         ChronicDiseases: chronicDiseases.length > 0 ? chronicDiseases : undefined,
       })
-      setSuccess(true)
+      setOtpEmail(form.email.trim().toLowerCase())
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
       setApiError(e?.response?.data?.message ?? 'Registration failed. Please try again.')
@@ -226,27 +423,17 @@ export default function PatientSignupPage() {
     }
   }
 
-  // ── Success screen ──────────────────────────────────────────────────────────
-
-  if (success) {
+  // ── OTP step ────────────────────────────────────────────────────────────────
+  if (otpEmail && !verified) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] px-6">
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-10 max-w-md w-full text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-50 mx-auto mb-4">
-            <CheckCircle className="h-8 w-8 text-green-600" />
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Registration Successful!</h2>
-          <p className="text-gray-500 text-sm mb-6">
-            Your account has been created. You can now log in using your National ID.
-          </p>
-          <Link
-            to="/login"
-            className="inline-flex items-center justify-center w-full h-10 rounded-lg text-sm font-medium text-white bg-[#0055BB] hover:bg-[#0044a0] transition-colors"
-          >
-            Go to Login
-          </Link>
-        </div>
-      </div>
+      <OtpScreen
+        email={otpEmail}
+        onVerified={() => {
+          setVerified(true)
+          // Redirect to patient dashboard since auto-login token is stored
+          navigate('/patient/health-passport', { replace: true })
+        }}
+      />
     )
   }
 
@@ -296,7 +483,7 @@ export default function PatientSignupPage() {
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-1">Patient Registration</h2>
             <p className="text-gray-500 text-sm mb-6">
-              Create your account — log in with your National ID once registered.
+              Create your account — verify your email to sign in.
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-4" noValidate>
@@ -334,15 +521,30 @@ export default function PatientSignupPage() {
                 </Field>
                 <Field
                   label="NFC Card ID"
-                  hint="Optional — printed on your healthcare card"
+                  hint={nfcScanning ? 'Hold your NFC card near the device...' : 'Optional — tap your card or enter the number printed on it'}
+                  error={errors.cardId || nfcError}
                 >
-                  <Input
-                    placeholder="e.g. NFC-0012345"
-                    value={form.cardId}
-                    onChange={e => set('cardId', e.target.value)}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="e.g. NFC-0012345"
+                      value={form.cardId}
+                      onChange={e => { set('cardId', e.target.value); setNfcError('') }}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleScanNfc}
+                      disabled={nfcScanning}
+                      className="shrink-0 gap-1.5 px-3"
+                      title="Tap NFC card to read card number"
+                    >
+                      {nfcScanning
+                        ? <div className="h-4 w-4 rounded-full border-2 border-gray-300 border-t-[#0055BB] animate-spin" />
+                        : <Wifi className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 </Field>
               </div>
 
@@ -380,6 +582,62 @@ export default function PatientSignupPage() {
                   </SelectContent>
                 </Select>
               </Field>
+
+              {/* ── Account Credentials ── */}
+              <Section title="Account Credentials" />
+
+              <Field label="Email Address *" error={errors.email}>
+                <Input
+                  type="email"
+                  placeholder="you@example.com"
+                  value={form.email}
+                  onChange={e => set('email', e.target.value)}
+                  autoComplete="email"
+                />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Password *" error={errors.password}>
+                  <div className="relative">
+                    <Input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Min 8 characters"
+                      value={form.password}
+                      onChange={e => set('password', e.target.value)}
+                      autoComplete="new-password"
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(s => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </Field>
+                <Field label="Confirm Password *" error={errors.confirmPassword}>
+                  <div className="relative">
+                    <Input
+                      type={showConfirm ? 'text' : 'password'}
+                      placeholder="Repeat password"
+                      value={form.confirmPassword}
+                      onChange={e => set('confirmPassword', e.target.value)}
+                      autoComplete="new-password"
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirm(s => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      aria-label={showConfirm ? 'Hide' : 'Show'}
+                    >
+                      {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </Field>
+              </div>
 
               {/* ── Contact Information ── */}
               <Section title="Contact Information" />
@@ -435,10 +693,7 @@ export default function PatientSignupPage() {
               {/* ── Medical History (optional) ── */}
               <Section title="Medical History (Optional)" />
 
-              <Field
-                label="Chronic Diseases"
-                hint="Press Enter or click Add after each entry"
-              >
+              <Field label="Chronic Diseases" hint="Press Enter or click Add after each entry">
                 <TagInput
                   placeholder="e.g. Diabetes, Hypertension"
                   items={chronicDiseases}
@@ -447,10 +702,7 @@ export default function PatientSignupPage() {
                 />
               </Field>
 
-              <Field
-                label="Previous Surgeries"
-                hint="Press Enter or click Add after each entry"
-              >
+              <Field label="Previous Surgeries" hint="Press Enter or click Add after each entry">
                 <TagInput
                   placeholder="e.g. Appendectomy 2019"
                   items={surgerys}

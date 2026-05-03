@@ -33,6 +33,11 @@ const pharmacyInventorySchema = new Schema(
         expiryDate: {
             type: Date,
         },
+        pricePerUnit: {
+            type: Number,
+            min: 0,
+            default: 0,
+        },
         lowStockThreshold: {
             type: Number,
             default: 10,

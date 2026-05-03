@@ -73,12 +73,18 @@ export default function HealthPassport() {
   if (error) return <p className="text-red-500 text-sm">{error}</p>
   if (!patient) return <p className="text-gray-500 text-sm">No patient data found</p>
 
-  const allMedications: (Medication & { recordDate: string })[] = records.flatMap(r =>
-    r.medications.map(m => ({ ...m, recordDate: r.createdAt }))
-  )
-
   const getDoctor  = (doc: Doctor | string)  => typeof doc === 'string' ? null : doc
   const getHospital = (h: Hospital | string) => typeof h   === 'string' ? null : h
+
+  const allMedications: (Medication & { recordDate: string; doctor: Doctor | null; hospital: Hospital | null })[] =
+    records.flatMap(r =>
+      r.medications.map(m => ({
+        ...m,
+        recordDate: r.createdAt,
+        doctor: getDoctor(r.doctorId as Doctor | string),
+        hospital: getHospital(r.hospitalId as Hospital | string),
+      }))
+    )
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -249,9 +255,25 @@ export default function HealthPassport() {
                         <p className="text-sm text-gray-500">{med.dosage || med.dose || ''}</p>
                         {med.duration && <p className="text-xs text-gray-400 mt-1">Duration: {med.duration}</p>}
                         {med.notes && <p className="text-xs text-gray-400 mt-1">{med.notes}</p>}
-                        <p className="text-xs text-gray-300 mt-2">
-                          {new Date(med.recordDate).toLocaleDateString()}
-                        </p>
+                        <div className="mt-2 space-y-0.5">
+                          {med.doctor && (
+                            <p className="text-xs text-[#0055BB] flex items-center gap-1">
+                              <Stethoscope className="h-3 w-3 flex-shrink-0" />
+                              Dr. {med.doctor.firstName} {med.doctor.lastName}
+                              {med.doctor.specialization && ` · ${med.doctor.specialization}`}
+                            </p>
+                          )}
+                          {med.hospital && (
+                            <p className="text-xs text-gray-500 flex items-center gap-1">
+                              <Building2 className="h-3 w-3 flex-shrink-0" />
+                              {med.hospital.name}
+                            </p>
+                          )}
+                          <p className="text-xs text-gray-300 flex items-center gap-1">
+                            <Clock className="h-3 w-3 flex-shrink-0" />
+                            {new Date(med.recordDate).toLocaleDateString()}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </CardContent>

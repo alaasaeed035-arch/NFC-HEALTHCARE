@@ -56,7 +56,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (credentials: LoginCredentials) => {
     if (credentials.loginType === 'patient') {
       const res = await client.post('/auth/login/patient', {
-        nationalId: credentials.nationalId,
+        email: credentials.email,
+        password: credentials.password,
       })
       const tok: string = res.data.token
       if (!tok) throw new Error('No token received')

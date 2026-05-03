@@ -5,7 +5,7 @@ import { roles } from "../../utils/constant/enum.js";
 import { isValid } from "../../middleware/vaildation.js";
 import { deleteDoctorSchema, deleteReceptionistSchema, receptionistHospitalSchema, updateReceptionistSchema, verifyReceptionistOtpSchema, resendReceptionistOtpSchema, pharmacistHospitalSchema, verifyPharmacistOtpSchema, resendPharmacistOtpSchema, deletePharmacistSchema } from "./admin_hospital.validation.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { createReceptionist, deleteDoctor, deleteReceptionist, getAdminHospitalProfile, getAllReceptionists, updateReceptionist, getHospitalDoctors, getHospitalPatients, verifyReceptionistOtp, resendReceptionistOtp, setDoctorWorkingHours, createPharmacist, getAllPharmacists, verifyPharmacistOtp, resendPharmacistOtp, deletePharmacist } from "./admin_hospital.controller.js";
+import { createReceptionist, deleteDoctor, deleteReceptionist, getAdminHospitalProfile, getAllReceptionists, updateReceptionist, getHospitalDoctors, getHospitalPatients, verifyReceptionistOtp, resendReceptionistOtp, setDoctorWorkingHours, createPharmacist, getAllPharmacists, verifyPharmacistOtp, resendPharmacistOtp, deletePharmacist, getDepartments, addDepartment, deleteDepartment } from "./admin_hospital.controller.js";
 
 
 const adminHospitalRouter = Router();
@@ -122,6 +122,25 @@ adminHospitalRouter.delete('/pharmacist/:pharmacistId',
     isAuthorized([roles.ADMIN_HOSPITAL]),
     isValid(deletePharmacistSchema),
     asyncHandler(deletePharmacist)
+)
+
+// ── Department routes ─────────────────────────────────────────────────────
+adminHospitalRouter.get('/departments',
+    isAuthenticated(),
+    isAuthorized([roles.ADMIN_HOSPITAL]),
+    asyncHandler(getDepartments)
+)
+
+adminHospitalRouter.post('/departments',
+    isAuthenticated(),
+    isAuthorized([roles.ADMIN_HOSPITAL]),
+    asyncHandler(addDepartment)
+)
+
+adminHospitalRouter.delete('/departments/:name',
+    isAuthenticated(),
+    isAuthorized([roles.ADMIN_HOSPITAL]),
+    asyncHandler(deleteDepartment)
 )
 
 // get profile admin hospital route

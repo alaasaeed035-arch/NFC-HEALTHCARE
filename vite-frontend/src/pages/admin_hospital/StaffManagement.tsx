@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { UserPlus, Trash2, Users, Stethoscope, LayoutDashboard, UserCog, ShieldAlert, Eye, MapPin, Phone, CreditCard, Contact, Mail, ShieldCheck, Clock, Beaker } from 'lucide-react'
+import { UserPlus, Trash2, Stethoscope, LayoutDashboard, UserCog, ShieldAlert, Mail, ShieldCheck, Clock, Beaker, Building2, Plus } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -13,7 +13,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription
 } from '@/components/ui/Dialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import type { Receptionist, Doctor, Patient, WorkingHours, WeekDay } from '@/types'
+import type { Receptionist, Doctor, WorkingHours, WeekDay } from '@/types'
 import client from '@/api/client'
 import { useToast } from '@/components/ui/Toast'
 
@@ -27,16 +27,14 @@ type ReceptionistForm = StaffForm
 export default function StaffManagement() {
   const location = useLocation()
   const navigate = useNavigate()
-  const VALID_TABS = ['overview', 'receptionists', 'pharmacists', 'doctors', 'patients']
+  const VALID_TABS = ['overview', 'receptionists', 'pharmacists', 'doctors', 'departments']
   const hashTab = location.hash.replace('#', '')
   const activeTab = VALID_TABS.includes(hashTab) ? hashTab : 'overview'
   const { toast } = useToast()
   const [receptionists, setReceptionists] = useState<Receptionist[]>([])
   const [pharmacists, setPharmacists] = useState<Receptionist[]>([])
   const [doctors, setDoctors] = useState<Doctor[]>([])
-  const [patients, setPatients] = useState<Patient[]>([])
   const [loading, setLoading] = useState(true)
-  // createType controls which staff type the dialog creates
   const [createType, setCreateType] = useState<'receptionist' | 'pharmacist'>('receptionist')
   const [createOpen, setCreateOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -45,8 +43,6 @@ export default function StaffManagement() {
   const [deletingPharmacist, setDeletingPharmacist] = useState(false)
   const [deleteDoctorId, setDeleteDoctorId] = useState<string | null>(null)
   const [deletingDoctor, setDeletingDoctor] = useState(false)
-  const [viewPatient, setViewPatient] = useState<Patient | null>(null)
-  const [searchPatient, setSearchPatient] = useState('')
   const [otpDialogOpen, setOtpDialogOpen] = useState(false)
   const [otpType, setOtpType] = useState<'receptionist' | 'pharmacist'>('receptionist')
   const [otpTargetId, setOtpTargetId] = useState<string | null>(null)
@@ -55,6 +51,15 @@ export default function StaffManagement() {
   const [verifyingOtp, setVerifyingOtp] = useState(false)
   const [resendingOtp, setResendingOtp] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  // Departments
+  interface Department { name: string; floor: string }
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [deptForm, setDeptForm] = useState({ name: '', floor: '' })
+  const [deptFormErrors, setDeptFormErrors] = useState<{ name?: string }>({})
+  const [addingDept, setAddingDept] = useState(false)
+  const [deleteDeptName, setDeleteDeptName] = useState<string | null>(null)
+  const [deletingDept, setDeletingDept] = useState(false)
 
   // Working hours dialog
   const DAYS: WeekDay[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -104,11 +109,11 @@ export default function StaffManagement() {
   const fetchAll = async () => {
     setLoading(true)
     try {
-      const [rRes, phRes, dRes, pRes] = await Promise.allSettled([
+      const [rRes, phRes, dRes, deptRes] = await Promise.allSettled([
         client.get('/admin-hospital/receptionists'),
         client.get('/admin-hospital/pharmacists'),
         client.get('/admin-hospital/doctors'),
-        client.get('/admin-hospital/patients'),
+        client.get('/admin-hospital/departments'),
       ])
       if (rRes.status === 'fulfilled') {
         const d = rRes.value.data
@@ -122,9 +127,11 @@ export default function StaffManagement() {
         const d = dRes.value.data
         setDoctors(Array.isArray(d) ? d : d.data ?? [])
       }
-      if (pRes.status === 'fulfilled') {
-        const d = pRes.value.data
-        setPatients(Array.isArray(d) ? d : d.data ?? [])
+      if (deptRes.status === 'fulfilled') {
+        setDepartments(deptRes.value.data.data ?? [])
+      } else {
+        const e = deptRes.reason as { response?: { data?: { message?: string } }; message?: string }
+        console.error('Departments fetch failed:', e?.response?.data?.message ?? e?.message)
       }
     } finally {
       setLoading(false)
@@ -269,13 +276,48 @@ export default function StaffManagement() {
     }
   }
 
+  const handleAddDepartment = async () => {
+    if (!deptForm.name.trim()) {
+      setDeptFormErrors({ name: 'Required' })
+      return
+    }
+    setDeptFormErrors({})
+    setAddingDept(true)
+    try {
+      const res = await client.post('/admin-hospital/departments', deptForm)
+      setDepartments(res.data.data)
+      setDeptForm({ name: '', floor: '' })
+      toast({ title: 'Department added', variant: 'success' })
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      toast({ title: e?.response?.data?.message ?? 'Failed to add department', variant: 'error' })
+    } finally {
+      setAddingDept(false)
+    }
+  }
+
+  const handleDeleteDepartment = async () => {
+    if (!deleteDeptName) return
+    setDeletingDept(true)
+    try {
+      const res = await client.delete(`/admin-hospital/departments/${encodeURIComponent(deleteDeptName)}`)
+      setDepartments(res.data.data)
+      toast({ title: 'Department deleted', variant: 'success' })
+      setDeleteDeptName(null)
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      toast({ title: e?.response?.data?.message ?? 'Failed to delete department', variant: 'error' })
+    } finally {
+      setDeletingDept(false)
+    }
+  }
+
   const sf = (field: keyof ReceptionistForm, value: string) => {
     setForm(prev => ({ ...prev, [field]: value }))
     setFormErrors(prev => ({ ...prev, [field]: '' }))
   }
 
   const stats = [
-    { label: 'Total Patients', value: patients.length, icon: Users, color: 'bg-blue-50 text-[#0055BB]' },
     { label: 'Total Doctors', value: doctors.length, icon: Stethoscope, color: 'bg-green-50 text-green-600' },
     { label: 'Receptionists', value: receptionists.length, icon: UserCog, color: 'bg-purple-50 text-purple-600' },
     { label: 'Pharmacists', value: pharmacists.length, icon: Beaker, color: 'bg-teal-50 text-teal-600' },
@@ -297,8 +339,8 @@ export default function StaffManagement() {
           <TabsTrigger value="doctors">
             <Stethoscope className="h-4 w-4 mr-1.5" />Doctors
           </TabsTrigger>
-          <TabsTrigger value="patients">
-            <Users className="h-4 w-4 mr-1.5" />Patients
+          <TabsTrigger value="departments">
+            <Building2 className="h-4 w-4 mr-1.5" />Departments
           </TabsTrigger>
         </TabsList>
 
@@ -625,151 +667,90 @@ export default function StaffManagement() {
             </CardContent>
           </Card>
         </TabsContent>
-        {/* Patients Tab — view only */}
-        <TabsContent value="patients">
-          <Card>
-            <CardHeader>
-              <CardTitle>Hospital Patients ({patients.length})</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="relative mb-4">
-                <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                <Input
-                  placeholder="Search patients..."
-                  className="pl-9"
-                  value={searchPatient}
-                  onChange={e => setSearchPatient(e.target.value)}
-                />
-              </div>
-              {loading ? (
-                <div className="flex justify-center py-8"><Spinner /></div>
-              ) : (() => {
-                const q = searchPatient.toLowerCase()
-                const filtered = q
-                  ? patients.filter(p =>
-                      p.firstName.toLowerCase().includes(q) ||
-                      p.lastName.toLowerCase().includes(q) ||
-                      p.nationalId.toLowerCase().includes(q)
-                    )
-                  : patients
-                return (
+        {/* Departments Tab */}
+        <TabsContent value="departments">
+          <div className="space-y-4">
+            {/* Add form */}
+            <Card>
+              <CardHeader><CardTitle>Add Department</CardTitle></CardHeader>
+              <CardContent>
+                <div className="flex flex-col sm:flex-row gap-3 items-start">
+                  <div className="flex-1 space-y-1">
+                    <Label>Department Name *</Label>
+                    <Input
+                      placeholder="e.g. Cardiology"
+                      value={deptForm.name}
+                      onChange={e => { setDeptForm(p => ({ ...p, name: e.target.value })); setDeptFormErrors({}) }}
+                    />
+                    {deptFormErrors.name && <p className="text-xs text-red-500">{deptFormErrors.name}</p>}
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <Label>Floor</Label>
+                    <Input
+                      placeholder="e.g. 3rd Floor"
+                      value={deptForm.floor}
+                      onChange={e => setDeptForm(p => ({ ...p, floor: e.target.value }))}
+                    />
+                  </div>
+                  <div className="pt-6">
+                    <Button onClick={handleAddDepartment} disabled={addingDept}>
+                      {addingDept ? <Spinner size="sm" /> : <><Plus className="h-4 w-4 mr-1.5" />Add</>}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Departments list */}
+            <Card>
+              <CardHeader><CardTitle>Departments ({departments.length})</CardTitle></CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="flex justify-center py-8"><Spinner /></div>
+                ) : departments.length === 0 ? (
+                  <p className="text-center text-gray-400 py-8">No departments yet — add one above</p>
+                ) : (
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Name</TableHead>
-                        <TableHead>National ID</TableHead>
-                        <TableHead>Blood Type</TableHead>
-                        <TableHead>Phone</TableHead>
-                        <TableHead>Address</TableHead>
-                        <TableHead>Card ID</TableHead>
-                        <TableHead className="w-12"></TableHead>
+                        <TableHead>Floor</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filtered.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center text-gray-400 py-8">No patients found</TableCell>
-                        </TableRow>
-                      ) : filtered.map(p => (
-                        <TableRow key={p._id}>
+                      {departments.map(dept => (
+                        <TableRow key={dept.name}>
                           <TableCell>
-                            <div className="font-medium">{p.firstName} {p.lastName}</div>
-                            <div className="text-xs text-gray-400">{p.gender}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+                                <Building2 className="h-4 w-4 text-[#0055BB]" />
+                              </div>
+                              <span className="font-medium text-gray-900">{dept.name}</span>
+                            </div>
                           </TableCell>
-                          <TableCell>{p.nationalId}</TableCell>
-                          <TableCell>
-                            {p.bloodType ? <Badge variant="secondary">{p.bloodType}</Badge> : <span className="text-gray-400">—</span>}
-                          </TableCell>
-                          <TableCell>{p.phoneNumber ?? <span className="text-gray-400">—</span>}</TableCell>
-                          <TableCell className="text-gray-500 text-xs max-w-[140px] truncate">{p.address ?? <span className="text-gray-400">—</span>}</TableCell>
-                          <TableCell className="text-gray-500 text-xs font-mono">{p.cardId ?? <span className="text-gray-400">—</span>}</TableCell>
-                          <TableCell>
+                          <TableCell className="text-gray-500">{dept.floor || <span className="text-gray-300">—</span>}</TableCell>
+                          <TableCell className="text-right">
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="h-8 w-8 text-gray-400 hover:text-[#0055BB]"
-                              aria-label="View patient details"
-                              onClick={() => setViewPatient(p)}
+                              className="text-red-400 hover:text-red-600 h-8 w-8"
+                              aria-label="Delete department"
+                              onClick={() => setDeleteDeptName(dept.name)}
                             >
-                              <Eye className="h-4 w-4" />
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
-                )
-              })()}
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
-
-      {/* Patient Detail Dialog */}
-      <Dialog open={!!viewPatient} onOpenChange={open => { if (!open) setViewPatient(null) }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Patient Details</DialogTitle>
-            <DialogDescription>Full profile information</DialogDescription>
-          </DialogHeader>
-          {viewPatient && (
-            <div className="space-y-4">
-              <div className="rounded-xl bg-gradient-to-br from-[#0055BB] to-[#003380] p-4 text-white">
-                <p className="text-xl font-bold">{viewPatient.firstName} {viewPatient.lastName}</p>
-                <p className="text-sm opacity-80 mt-0.5">ID: {viewPatient.nationalId}</p>
-                <div className="flex items-center gap-4 mt-2 text-sm opacity-90">
-                  <span>{viewPatient.gender}</span>
-                  {viewPatient.bloodType && <Badge className="bg-white/20 text-white border-0">{viewPatient.bloodType}</Badge>}
-                  {viewPatient.dateOfBirth && <span>DOB: {viewPatient.dateOfBirth}</span>}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Contact</p>
-                <div className="grid gap-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-                    <span className="text-gray-700">{viewPatient.phoneNumber ?? <span className="text-gray-400">Not provided</span>}</span>
-                  </div>
-                  <div className="flex items-start gap-2 text-sm">
-                    <MapPin className="h-3.5 w-3.5 text-gray-400 flex-shrink-0 mt-0.5" />
-                    <span className="text-gray-700">{viewPatient.address ?? <span className="text-gray-400">Not provided</span>}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <CreditCard className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-                    <span className="text-gray-700 font-mono">{viewPatient.cardId ?? <span className="text-gray-400 font-sans">No card linked</span>}</span>
-                  </div>
-                </div>
-              </div>
-              {viewPatient.emergencyContact && (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Emergency Contact</p>
-                  <div className="rounded-lg border border-red-100 bg-red-50 p-3 space-y-1">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Contact className="h-3.5 w-3.5 text-red-400 flex-shrink-0" />
-                      <span className="font-medium text-gray-800">{viewPatient.emergencyContact.name}</span>
-                      <span className="text-gray-500 text-xs">({viewPatient.emergencyContact.relation})</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm pl-5">
-                      <span className="text-gray-700">{viewPatient.emergencyContact.phone}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {(viewPatient.ChronicDiseases?.length || viewPatient.surgerys?.length) ? (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Medical History</p>
-                  {viewPatient.ChronicDiseases?.length ? (
-                    <div className="text-sm"><span className="text-gray-500">Chronic: </span>{viewPatient.ChronicDiseases.join(', ')}</div>
-                  ) : null}
-                  {viewPatient.surgerys?.length ? (
-                    <div className="text-sm"><span className="text-gray-500">Surgeries: </span>{viewPatient.surgerys.join(', ')}</div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
 
       <ConfirmDialog
         open={!!deleteId}
@@ -799,6 +780,16 @@ export default function StaffManagement() {
         confirmLabel="Delete"
         onConfirm={handleDeleteDoctor}
         loading={deletingDoctor}
+      />
+
+      <ConfirmDialog
+        open={!!deleteDeptName}
+        onOpenChange={open => { if (!open) setDeleteDeptName(null) }}
+        title="Delete Department"
+        description={`Remove the "${deleteDeptName}" department? This cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={handleDeleteDepartment}
+        loading={deletingDept}
       />
 
       {/* Working Hours Dialog */}

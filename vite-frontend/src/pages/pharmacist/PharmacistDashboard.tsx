@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 import {
   Package, AlertTriangle, ClipboardList, Search, Plus, Edit2, Check,
   X, Pill, Clock, User, CheckCircle2, RefreshCw, Droplets, Calendar,
-  ChevronRight, FileText, AlertCircle, Beaker, Wifi,
+  ChevronRight, FileText, AlertCircle, Beaker, Wifi, BarChart2, Trash2,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -12,13 +12,13 @@ import { Label } from '@/components/ui/Label'
 import { Badge } from '@/components/ui/Badge'
 import { Spinner } from '@/components/ui/Spinner'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/Dialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
 import { NfcScanModal } from '@/components/nfc/NfcScanModal'
-import type { Patient, PharmacyInventoryItem, Prescription } from '@/types'
+import type { Patient, PharmacyInventoryItem, Prescription, PrescriptionMedItem } from '@/types'
 import client from '@/api/client'
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -79,7 +79,7 @@ interface AddDrugDialogProps {
 
 const BLANK_FORM = {
   name: '', genericName: '', dosageForms: '', quantityInStock: '',
-  unit: '', manufacturer: '', expiryDate: '', lowStockThreshold: '10',
+  unit: '', manufacturer: '', expiryDate: '', pricePerUnit: '', lowStockThreshold: '10',
 }
 
 function AddDrugDialog({ open, onOpenChange, onSaved }: AddDrugDialogProps) {
@@ -104,6 +104,7 @@ function AddDrugDialog({ open, onOpenChange, onSaved }: AddDrugDialogProps) {
         unit: form.unit.trim() || undefined,
         manufacturer: form.manufacturer.trim() || undefined,
         expiryDate: form.expiryDate || undefined,
+        pricePerUnit: form.pricePerUnit ? Number(form.pricePerUnit) : 0,
         lowStockThreshold: Number(form.lowStockThreshold) || 10,
       })
       toast({ title: 'Drug added to inventory', variant: 'success' })
@@ -144,6 +145,14 @@ function AddDrugDialog({ open, onOpenChange, onSaved }: AddDrugDialogProps) {
               <Label>Unit</Label>
               <Input placeholder="e.g., tablets, ml" value={form.unit} onChange={e => set('unit', e.target.value)} />
             </div>
+            <div className="space-y-1">
+              <Label>Price per Unit <span className="text-gray-400 font-normal">(EGP)</span></Label>
+              <Input type="number" min="0" step="0.01" placeholder="e.g., 12.50" value={form.pricePerUnit} onChange={e => set('pricePerUnit', e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Low Stock Threshold</Label>
+              <Input type="number" min="0" placeholder="10" value={form.lowStockThreshold} onChange={e => set('lowStockThreshold', e.target.value)} />
+            </div>
             <div className="col-span-2 space-y-1">
               <Label>Dosage Forms <span className="text-gray-400 font-normal">(comma-separated)</span></Label>
               <Input placeholder="e.g., tablet, syrup, capsule" value={form.dosageForms} onChange={e => set('dosageForms', e.target.value)} />
@@ -155,10 +164,6 @@ function AddDrugDialog({ open, onOpenChange, onSaved }: AddDrugDialogProps) {
             <div className="space-y-1">
               <Label>Expiry Date</Label>
               <Input type="date" value={form.expiryDate} onChange={e => set('expiryDate', e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Low Stock Threshold</Label>
-              <Input type="number" min="0" placeholder="10" value={form.lowStockThreshold} onChange={e => set('lowStockThreshold', e.target.value)} />
             </div>
           </div>
         </div>
@@ -251,6 +256,7 @@ function InventoryTab({ inventory, loading, onRefresh }: InventoryTabProps) {
   const [addOpen, setAddOpen] = useState(false)
   const [editItem, setEditItem] = useState<PharmacyInventoryItem | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [confirmDeactivate, setConfirmDeactivate] = useState<PharmacyInventoryItem | null>(null)
 
   const filtered = inventory.filter(i =>
     i.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -269,6 +275,14 @@ function InventoryTab({ inventory, loading, onRefresh }: InventoryTabProps) {
       toast({ title: 'Failed to update item', variant: 'error' })
     } finally {
       setTogglingId(null)
+    }
+  }
+
+  function handleToggleClick(item: PharmacyInventoryItem) {
+    if (item.isActive) {
+      setConfirmDeactivate(item)
+    } else {
+      toggleActive(item)
     }
   }
 
@@ -331,6 +345,7 @@ function InventoryTab({ inventory, loading, onRefresh }: InventoryTabProps) {
                 <th className="px-4 py-3 text-left">Drug</th>
                 <th className="px-4 py-3 text-left hidden md:table-cell">Forms</th>
                 <th className="px-4 py-3 text-right">Stock</th>
+                <th className="px-4 py-3 text-right hidden md:table-cell">Price / Unit</th>
                 <th className="px-4 py-3 text-left hidden lg:table-cell">Expiry</th>
                 <th className="px-4 py-3 text-center">Status</th>
                 <th className="px-4 py-3 text-right">Actions</th>
@@ -369,6 +384,11 @@ function InventoryTab({ inventory, loading, onRefresh }: InventoryTabProps) {
                       )}
                     </div>
                   </td>
+                  <td className="px-4 py-3 text-right hidden md:table-cell">
+                    <span className="text-sm text-gray-700">
+                      {item.pricePerUnit > 0 ? `EGP ${item.pricePerUnit.toFixed(2)}` : <span className="text-gray-300">—</span>}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 hidden lg:table-cell">
                     <span className="text-xs text-gray-500 flex items-center gap-1">
                       <Calendar className="h-3 w-3" />{fmtDate(item.expiryDate)}
@@ -391,7 +411,7 @@ function InventoryTab({ inventory, loading, onRefresh }: InventoryTabProps) {
                       <Button
                         variant="outline" size="sm"
                         className={`h-7 px-2 text-xs ${item.isActive ? 'text-red-600 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
-                        onClick={() => toggleActive(item)}
+                        onClick={() => handleToggleClick(item)}
                         disabled={togglingId === item._id}
                       >
                         {togglingId === item._id
@@ -409,6 +429,22 @@ function InventoryTab({ inventory, loading, onRefresh }: InventoryTabProps) {
 
       <AddDrugDialog open={addOpen} onOpenChange={setAddOpen} onSaved={onRefresh} />
       <EditQtyDialog item={editItem} onOpenChange={v => !v && setEditItem(null)} onSaved={onRefresh} />
+
+      <ConfirmDialog
+        open={!!confirmDeactivate}
+        onOpenChange={v => !v && setConfirmDeactivate(null)}
+        title="Deactivate Medication"
+        description={`Mark "${confirmDeactivate?.name}" as inactive? It will no longer appear as available in prescriptions.`}
+        confirmLabel="Deactivate"
+        variant="destructive"
+        loading={togglingId === confirmDeactivate?._id}
+        onConfirm={() => {
+          if (confirmDeactivate) {
+            toggleActive(confirmDeactivate)
+            setConfirmDeactivate(null)
+          }
+        }}
+      />
     </div>
   )
 }
@@ -421,25 +457,36 @@ interface MedAvailability {
   reason: string
 }
 
+function resolveInventoryItem(med: { inventoryItemId?: unknown; name?: string }, inventory: PharmacyInventoryItem[]): PharmacyInventoryItem | undefined {
+  // Always resolve from the full inventory list — the populated sub-object only has
+  // a subset of fields (name/genericName/unit) and is missing isActive/quantityInStock.
+  if (typeof med.inventoryItemId === 'string' && med.inventoryItemId) {
+    const found = inventory.find(i => i._id === med.inventoryItemId)
+    if (found) return found
+  }
+  if (typeof med.inventoryItemId === 'object' && med.inventoryItemId !== null) {
+    const id = (med.inventoryItemId as PharmacyInventoryItem)._id
+    if (id) {
+      const found = inventory.find(i => i._id === id)
+      if (found) return found
+    }
+  }
+  if (med.name) {
+    const lower = med.name.toLowerCase()
+    return inventory.find(i =>
+      i.name.toLowerCase() === lower || i.genericName?.toLowerCase() === lower
+    )
+  }
+  return undefined
+}
+
 function checkMedAvailability(rx: Prescription, inventory: PharmacyInventoryItem[]): MedAvailability[] {
   return rx.medications.map(med => {
     const drugName = med.name ?? (typeof med.inventoryItemId === 'object' && med.inventoryItemId !== null
       ? (med.inventoryItemId as PharmacyInventoryItem).name
       : '') ?? 'Unknown'
 
-    // Resolve inventory item
-    let found: PharmacyInventoryItem | undefined
-    if (typeof med.inventoryItemId === 'object' && med.inventoryItemId !== null) {
-      found = med.inventoryItemId as PharmacyInventoryItem
-    } else if (typeof med.inventoryItemId === 'string' && med.inventoryItemId) {
-      found = inventory.find(i => i._id === med.inventoryItemId)
-    }
-    if (!found && med.name) {
-      const lower = med.name.toLowerCase()
-      found = inventory.find(i =>
-        i.name.toLowerCase() === lower || i.genericName?.toLowerCase() === lower
-      )
-    }
+    const found = resolveInventoryItem(med, inventory)
 
     if (!found) return { drugName, available: false, reason: 'Not in inventory' }
     if (!found.isActive) return { drugName, available: false, reason: 'Marked inactive' }
@@ -534,12 +581,15 @@ interface DispenseTabProps {
   foundPatient: Patient | null
   inventory: PharmacyInventoryItem[]
   onPatientSearch: (id: string) => void
+  onInventoryRefresh: () => void
 }
 
-function DispenseTab({ pendingRx, patientLoading, rxLoading, foundPatient, inventory, onPatientSearch }: DispenseTabProps) {
+function DispenseTab({ pendingRx, patientLoading, rxLoading, foundPatient, inventory, onPatientSearch, onInventoryRefresh }: DispenseTabProps) {
   const [input, setInput] = useState('')
   const [nfcOpen, setNfcOpen] = useState(false)
   const [dispenseTarget, setDispenseTarget] = useState<Prescription | null>(null)
+  // quantities[i] = how many units the patient wants for medications[i]
+  const [quantities, setQuantities] = useState<number[]>([])
   const [dispensing, setDispensing] = useState(false)
   const { toast } = useToast()
   const [localRx, setLocalRx] = useState<Prescription[]>(pendingRx)
@@ -549,16 +599,45 @@ function DispenseTab({ pendingRx, patientLoading, rxLoading, foundPatient, inven
   function handleDispenseClick(rx: Prescription, unavailable: MedAvailability[]) {
     if (unavailable.length > 0) return
     setDispenseTarget(rx)
+    setQuantities(rx.medications.map(() => 1))
   }
+
+  function setQty(idx: number, val: string) {
+    const n = Math.max(1, Math.floor(Number(val) || 1))
+    setQuantities(prev => prev.map((q, i) => i === idx ? n : q))
+  }
+
+  function getStock(med: PrescriptionMedItem): number | null {
+    return resolveInventoryItem(med, inventory)?.quantityInStock ?? null
+  }
+
+  function getUnit(med: PrescriptionMedItem): string {
+    return resolveInventoryItem(med, inventory)?.unit ?? 'units'
+  }
+
+  function getPrice(med: PrescriptionMedItem): number | null {
+    const price = resolveInventoryItem(med, inventory)?.pricePerUnit
+    return (price !== undefined && price > 0) ? price : null
+  }
+
+  const quantitiesValid = dispenseTarget
+    ? dispenseTarget.medications.every((med, i) => {
+        const stock = getStock(med)
+        return stock === null || quantities[i] <= stock
+      })
+    : true
 
   async function handleDispense() {
     if (!dispenseTarget) return
     setDispensing(true)
     try {
-      await client.patch(`/api/pharmacy/prescriptions/${dispenseTarget._id}/dispense`)
+      await client.patch(`/api/pharmacy/prescriptions/${dispenseTarget._id}/dispense`, {
+        medicationQuantities: quantities,
+      })
       toast({ title: 'Prescription dispensed successfully', variant: 'success' })
       setLocalRx(prev => prev.filter(r => r._id !== dispenseTarget._id))
       setDispenseTarget(null)
+      onInventoryRefresh()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
       toast({ title: e?.response?.data?.message ?? 'Dispense failed', variant: 'error' })
@@ -566,8 +645,6 @@ function DispenseTab({ pendingRx, patientLoading, rxLoading, foundPatient, inven
       setDispensing(false)
     }
   }
-
-  const rxToDispense = dispenseTarget
 
   return (
     <div className="space-y-4" id="dispense">
@@ -589,7 +666,6 @@ function DispenseTab({ pendingRx, patientLoading, rxLoading, foundPatient, inven
             <Wifi className="h-4 w-4 rotate-90" />
             Scan NFC Card
           </button>
-
 
           {patientLoading && (
             <div className="flex items-center gap-2 text-sm text-gray-500">
@@ -647,17 +723,117 @@ function DispenseTab({ pendingRx, patientLoading, rxLoading, foundPatient, inven
         </Card>
       )}
 
-      {/* Dispense confirmation */}
-      <ConfirmDialog
-        open={!!dispenseTarget}
-        onOpenChange={v => { if (!v) setDispenseTarget(null) }}
-        title="Confirm Dispense"
-        description={rxToDispense ? `Dispense ${rxToDispense.medications.length} medication(s) for this patient? Stock will be deducted for linked inventory items.` : ''}
-        confirmLabel={dispensing ? 'Dispensing…' : 'Yes, Dispense'}
-        onConfirm={handleDispense}
-        loading={dispensing}
-        variant="default"
-      />
+      {/* Dispense quantities dialog */}
+      <Dialog open={!!dispenseTarget} onOpenChange={v => { if (!v) setDispenseTarget(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pill className="h-4 w-4 text-[#0055BB]" />Dispense Medications
+            </DialogTitle>
+            <DialogDescription>
+              Enter how many units the patient needs for each medication. Stock will be deducted accordingly.
+            </DialogDescription>
+          </DialogHeader>
+
+          {dispenseTarget && (
+            <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+              {dispenseTarget.medications.map((med, i) => {
+                const invItem = typeof med.inventoryItemId === 'object' ? med.inventoryItemId as PharmacyInventoryItem : null
+                const drugName = med.name ?? invItem?.name ?? 'Unknown drug'
+                const stock = getStock(med)
+                const unit = getUnit(med)
+                const price = getPrice(med)
+                const qty = quantities[i] ?? 1
+                const overStock = stock !== null && qty > stock
+
+                return (
+                  <div
+                    key={i}
+                    className={`rounded-lg border p-3 space-y-2 ${overStock ? 'border-red-200 bg-red-50' : 'border-gray-100 bg-gray-50'}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                          <Pill className="h-3.5 w-3.5 text-[#0055BB] flex-shrink-0" />
+                          {drugName}
+                        </p>
+                        <div className="flex flex-wrap gap-2 mt-0.5 text-xs text-gray-500">
+                          {med.dosage && <span>{med.dosage}</span>}
+                          {med.frequency && <span>· {med.frequency}</span>}
+                          {med.duration && <span>· {med.duration}</span>}
+                        </div>
+                      </div>
+                      {stock !== null && (
+                        <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">
+                          {stock} {unit} in stock
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs whitespace-nowrap shrink-0">Qty to dispense</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={stock ?? undefined}
+                        value={qty}
+                        onChange={e => setQty(i, e.target.value)}
+                        className={`h-8 text-sm ${overStock ? 'border-red-400 focus:ring-red-300' : ''}`}
+                      />
+                      <span className="text-xs text-gray-400 shrink-0">{unit}</span>
+                    </div>
+
+                    {price !== null && (
+                      <div className="flex items-center justify-between rounded bg-white border border-gray-100 px-2.5 py-1.5 text-xs">
+                        <span className="text-gray-500">EGP {price.toFixed(2)} / {unit}</span>
+                        <span className="font-semibold text-[#0055BB]">
+                          Total: EGP {(price * qty).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+
+                    {overStock && (
+                      <p className="text-xs text-red-600 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        Maximum allowed: {stock} {unit}
+                      </p>
+                    )}
+
+                    {stock === null && (
+                      <p className="text-xs text-gray-400 italic">Not linked to inventory — no stock deducted</p>
+                    )}
+                  </div>
+                )
+              })}
+
+              {/* Grand total */}
+              {(() => {
+                if (!dispenseTarget) return null
+                const grandTotal = dispenseTarget.medications.reduce((sum, med, i) => {
+                  const p = getPrice(med)
+                  return p !== null ? sum + p * (quantities[i] ?? 1) : sum
+                }, 0)
+                if (grandTotal <= 0) return null
+                return (
+                  <div className="flex items-center justify-between rounded-lg bg-[#0055BB] px-4 py-2.5 text-white">
+                    <span className="text-sm font-semibold">Grand Total</span>
+                    <span className="text-lg font-bold">EGP {grandTotal.toFixed(2)}</span>
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDispenseTarget(null)} disabled={dispensing}>
+              Cancel
+            </Button>
+            <Button onClick={handleDispense} disabled={dispensing || !quantitiesValid}>
+              {dispensing ? <><Spinner size="sm" /> Dispensing…</> : 'Confirm Dispense'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -808,6 +984,114 @@ function HistoryTab() {
   )
 }
 
+// ── ReportsTab ─────────────────────────────────────────────────────────────
+
+interface ReportsTabProps {
+  inventory: PharmacyInventoryItem[]
+  missingMeds: string[]
+  lastScanTime: Date | null
+  loading: boolean
+  onRefresh: () => void
+  onClearMissing: () => void
+}
+
+function ReportsTab({ inventory, missingMeds, lastScanTime, loading, onRefresh, onClearMissing }: ReportsTabProps) {
+  const outOfStock = inventory.filter(i => i.isActive && i.quantityInStock <= 0)
+
+  return (
+    <div className="space-y-4" id="reports">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-400">
+          {lastScanTime
+            ? `Patient requests last updated: ${lastScanTime.toLocaleTimeString()}`
+            : 'Scan a patient card to populate requested medications'}
+        </p>
+        <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
+          Refresh Stock
+        </Button>
+      </div>
+
+      {/* Out of Stock */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Package className="h-4 w-4 text-red-500" />
+            Out of Stock
+            <span className="ml-auto text-sm font-normal text-gray-400">{outOfStock.length} drug{outOfStock.length !== 1 ? 's' : ''}</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {outOfStock.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 py-6 text-center">
+              <CheckCircle2 className="h-5 w-5 text-green-500" />
+              <p className="text-sm text-gray-500">All active medications are in stock</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {outOfStock.map(item => (
+                <div key={item._id} className="flex items-center justify-between rounded-lg border border-red-100 bg-red-50 px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{item.name}</p>
+                    {item.genericName && <p className="text-xs text-gray-400">{item.genericName}</p>}
+                  </div>
+                  <span className="text-xs font-bold text-red-600 bg-red-100 rounded-full px-2.5 py-0.5">
+                    0 {item.unit ?? 'units'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Requested but missing from inventory */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <AlertTriangle className="h-4 w-4 text-orange-500" />
+            Requested — Not Stocked
+            <span className="ml-auto text-sm font-normal text-gray-400">{missingMeds.length} drug{missingMeds.length !== 1 ? 's' : ''}</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {missingMeds.length === 0 ? (
+            <div className="py-6 text-center">
+              <p className="text-sm text-gray-400">
+                {lastScanTime
+                  ? 'No prescription requests outside of current inventory'
+                  : 'Scan a patient NFC card to detect missing medications'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="space-y-1.5">
+                {missingMeds.map((name, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded-lg border border-orange-100 bg-orange-50 px-3 py-2.5">
+                    <Pill className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />
+                    <p className="text-sm font-medium text-gray-800">{name}</p>
+                    <span className="ml-auto text-[10px] font-semibold text-orange-600 bg-orange-100 rounded-full px-2 py-0.5 whitespace-nowrap">
+                      Not in inventory
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <Button
+                variant="outline" size="sm"
+                className="mt-1 w-full text-gray-500 hover:text-red-600 hover:border-red-200"
+                onClick={onClearMissing}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" />Clear list
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 // ── PharmacistDashboard (root) ─────────────────────────────────────────────
 
 export default function PharmacistDashboard() {
@@ -823,10 +1107,15 @@ export default function PharmacistDashboard() {
   const [rxLoading, setRxLoading] = useState(false)
   const lastSearch = useRef('')
 
+  // Reports state
+  const [missingMeds, setMissingMeds] = useState<string[]>([])
+  const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
+  const inventoryRef = useRef<PharmacyInventoryItem[]>([])
+
   // Map hash → tab value
   const hashTab = location.hash === '#dispense' ? 'dispense'
     : location.hash === '#history' ? 'history'
-    : location.hash === '#inventory' ? 'inventory'
+    : location.hash === '#reports' ? 'reports'
     : 'inventory'
 
   const fetchInventory = useCallback(async () => {
@@ -843,6 +1132,7 @@ export default function PharmacistDashboard() {
   }, [toast])
 
   useEffect(() => { fetchInventory() }, [fetchInventory])
+  useEffect(() => { inventoryRef.current = inventory }, [inventory])
 
   const handlePatientSearch = useCallback(async (identifier: string) => {
     lastSearch.current = identifier
@@ -858,10 +1148,26 @@ export default function PharmacistDashboard() {
       if (rxList.length && typeof rxList[0].patientId === 'object') {
         setFoundPatient(rxList[0].patientId as Patient)
       } else {
-        // Patient exists but has no pending prescriptions — try fetching by nationalId/cardId
-        // We surface a "no pending prescriptions" state with a placeholder patient
         setFoundPatient({ _id: identifier, firstName: '—', lastName: '', nationalId: identifier, role: 'patient', gender: '', dateOfBirth: '' })
       }
+
+      // Collect meds requested by this patient that aren't in our inventory
+      const newMissing = new Set<string>()
+      for (const rx of rxList) {
+        for (const med of rx.medications) {
+          if (!resolveInventoryItem(med, inventoryRef.current) && med.name?.trim()) {
+            newMissing.add(med.name.trim())
+          }
+        }
+      }
+      if (newMissing.size > 0) {
+        setMissingMeds(prev => {
+          const existingLower = new Set(prev.map(n => n.toLowerCase()))
+          const toAdd = [...newMissing].filter(n => !existingLower.has(n.toLowerCase()))
+          return toAdd.length > 0 ? [...prev, ...toAdd] : prev
+        })
+      }
+      setLastScanTime(new Date())
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string }; status?: number } }
       if (e?.response?.status === 404) {
@@ -934,6 +1240,9 @@ export default function PharmacistDashboard() {
           <TabsTrigger value="history" className="gap-2">
             <FileText className="h-3.5 w-3.5" />History
           </TabsTrigger>
+          <TabsTrigger value="reports" className="gap-2">
+            <BarChart2 className="h-3.5 w-3.5" />Reports
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="inventory">
@@ -948,11 +1257,23 @@ export default function PharmacistDashboard() {
             foundPatient={foundPatient}
             inventory={inventory}
             onPatientSearch={handlePatientSearch}
+            onInventoryRefresh={fetchInventory}
           />
         </TabsContent>
 
         <TabsContent value="history">
           <HistoryTab />
+        </TabsContent>
+
+        <TabsContent value="reports">
+          <ReportsTab
+            inventory={inventory}
+            missingMeds={missingMeds}
+            lastScanTime={lastScanTime}
+            loading={loadingInventory}
+            onRefresh={fetchInventory}
+            onClearMissing={() => setMissingMeds([])}
+          />
         </TabsContent>
       </Tabs>
     </div>

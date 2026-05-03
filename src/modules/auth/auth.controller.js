@@ -2,59 +2,54 @@ import bcrypt from 'bcryptjs';
 import { AppError } from '../../utils/appError.js';
 import { messages } from '../../utils/constant/messages.js';
 import { generateToken, verifyToken } from '../../utils/token.js';
-import { Doctor, Hospital, Patient, User } from '../../../db/index.js';
+import { Card, Doctor, Hospital, Patient, User } from '../../../db/index.js';
 import { roles } from '../../utils/constant/enum.js';
 import { sendEmail } from '../../utils/sendEmail.js';
 import { generateOTP, sendOTP } from '../../utils/OTP.js';
 
 
 
-// patient signup
+// patient signup — staff-initiated (auth required, no email/OTP)
 export const signupPatient = async (req, res, next) => {
   const { firstName, lastName, nationalId, gender, dateOfBirth, bloodType, phoneNumber, address, emergencyContact, cardId, surgerys, ChronicDiseases } = req.body;
   const hospitalId = req.authUser?.hospitalId ?? null;
 
-  // check if patient already exists
   const orConditions = [{ nationalId }]
   if (cardId) orConditions.push({ cardId })
   const patientExist = await Patient.findOne({ $or: orConditions });
-
   if (patientExist) {
     return next(new AppError(messages.patient.alreadyExist, 409));
   }
 
-  // create new patient
+  // Validate card against generated cards pool
+  if (cardId) {
+    const card = await Card.findOne({ cardNumber: cardId });
+    if (!card) {
+      return next(new AppError('This card is not available.', 400));
+    }
+    if (card.isLinked) {
+      return next(new AppError('This card is already linked to another patient.', 409));
+    }
+  }
+
   const patient = new Patient({
-    firstName,
-    lastName,
-    nationalId,
-    gender,
-    dateOfBirth,
-    bloodType,
-    phoneNumber,
-    address,
-    emergencyContact,
-    cardId,
-    surgerys,
-    ChronicDiseases,
+    firstName, lastName, nationalId, gender, dateOfBirth, bloodType,
+    phoneNumber, address, emergencyContact, cardId, surgerys, ChronicDiseases,
     role: roles.PATIENT,
     hospitalId,
+    isVerified: true,
   });
 
-  // save patient
   const createdPatient = await patient.save();
   if (!createdPatient) {
     return next(new AppError(messages.patient.failToCreate, 500));
   }
 
-  // generate token ONLY with nationalId
-  const token = generateToken({
-    payload: {
-      nationalId: createdPatient.nationalId,
-    },
-  });
+  // Link card to patient
+  if (cardId) {
+    await Card.findOneAndUpdate({ cardNumber: cardId }, { isLinked: true, patientId: createdPatient._id });
+  }
 
-  // send response
   return res.status(201).json({
     message: messages.patient.accountCreated,
     success: true,
@@ -62,14 +57,140 @@ export const signupPatient = async (req, res, next) => {
   });
 };
 
-// patient login
-export const loginPatient = async (req, res, next) => {
-  const { nationalId } = req.body;
+// patient self-registration (public — email + password + OTP)
+export const selfSignupPatient = async (req, res, next) => {
+  const { firstName, lastName, nationalId, email, password, gender, dateOfBirth, bloodType, phoneNumber, address, emergencyContact, cardId, surgerys, ChronicDiseases } = req.body;
 
-  const patient = await Patient.findOne({ nationalId });
+  const orConditions = [{ nationalId }, { email }];
+  if (cardId) orConditions.push({ cardId });
+  const patientExist = await Patient.findOne({ $or: orConditions });
+  if (patientExist) {
+    return next(new AppError(messages.patient.alreadyExist, 409));
+  }
 
+  // Validate card against generated cards pool
+  if (cardId) {
+    const card = await Card.findOne({ cardNumber: cardId });
+    if (!card) {
+      return next(new AppError('This card is not available.', 400));
+    }
+    if (card.isLinked) {
+      return next(new AppError('This card is already linked to another patient.', 409));
+    }
+  }
+
+  const hashedPassword = bcrypt.hashSync(password, 8);
+  const otp = generateOTP();
+
+  const patient = new Patient({
+    firstName, lastName, nationalId, email, password: hashedPassword,
+    gender, dateOfBirth, bloodType, phoneNumber, address, emergencyContact,
+    cardId, surgerys, ChronicDiseases,
+    role: roles.PATIENT,
+    hospitalId: null,
+    isVerified: false,
+    otp,
+    otpExpires: Date.now() + 10 * 60 * 1000,
+  });
+
+  const createdPatient = await patient.save();
+  if (!createdPatient) {
+    return next(new AppError(messages.patient.failToCreate, 500));
+  }
+
+  // Link card to patient (card will be fully confirmed after OTP verification)
+  if (cardId) {
+    await Card.findOneAndUpdate({ cardNumber: cardId }, { isLinked: true, patientId: createdPatient._id });
+  }
+
+  await sendOTP(email, otp);
+
+  return res.status(201).json({
+    message: 'Account created. A verification code was sent to your email.',
+    success: true,
+    data: { email: createdPatient.email },
+  });
+};
+
+// verify patient OTP
+export const verifyPatientOtp = async (req, res, next) => {
+  const { email, otp } = req.body;
+
+  const patient = await Patient.findOne({ email });
   if (!patient) {
     return next(new AppError(messages.patient.notExist, 404));
+  }
+
+  if (patient.isVerified) {
+    return next(new AppError('Account is already verified.', 400));
+  }
+
+  if (String(patient.otp) !== String(otp) || Date.now() > new Date(patient.otpExpires).getTime()) {
+    return next(new AppError('Invalid or expired OTP.', 400));
+  }
+
+  patient.isVerified = true;
+  patient.otp = undefined;
+  patient.otpExpires = undefined;
+  await patient.save();
+
+  const token = generateToken({
+    payload: { _id: patient._id, nationalId: patient.nationalId, model: 'PATIENT' }
+  });
+
+  return res.status(200).json({
+    message: 'Email verified successfully. You are now logged in.',
+    success: true,
+    token,
+  });
+};
+
+// resend patient OTP
+export const resendPatientOtp = async (req, res, next) => {
+  const { email } = req.body;
+
+  const patient = await Patient.findOne({ email });
+  if (!patient) {
+    return next(new AppError(messages.patient.notExist, 404));
+  }
+
+  if (patient.isVerified) {
+    return next(new AppError('Account is already verified.', 400));
+  }
+
+  const otp = generateOTP();
+  patient.otp = otp;
+  patient.otpExpires = Date.now() + 10 * 60 * 1000;
+  await patient.save();
+
+  await sendOTP(email, otp);
+
+  return res.status(200).json({
+    message: 'A new verification code has been sent to your email.',
+    success: true,
+  });
+};
+
+// patient login (email + password)
+export const loginPatient = async (req, res, next) => {
+  const { email, password } = req.body;
+
+  const patient = await Patient.findOne({ email });
+  if (!patient) {
+    return next(new AppError(messages.user.invalidCredentials, 401));
+  }
+
+  if (!patient.password) {
+    return next(new AppError(messages.user.invalidCredentials, 401));
+  }
+
+  const isPasswordValid = bcrypt.compareSync(password, patient.password);
+  if (!isPasswordValid) {
+    return next(new AppError(messages.user.invalidCredentials, 401));
+  }
+
+  if (!patient.isVerified) {
+    return next(new AppError('Please verify your email before logging in.', 403));
   }
 
   const token = generateToken({
@@ -431,13 +552,22 @@ export const updatePatientProfile = async (req, res, next) => {
     patient.nationalId = nationalId;
   }
 
-  // Check if cardId is changed → must not duplicate
+  // Check if cardId is changed → validate against Card pool and unlink old
+  let newCardLinked = false;
   if (cardId && cardId !== patient.cardId) {
-    const cardExists = await Patient.findOne({ cardId });
-    if (cardExists) {
-      return next(new AppError(messages.patient.cardIdTaken, 409));
+    const card = await Card.findOne({ cardNumber: cardId });
+    if (!card) {
+      return next(new AppError('This card is not available.', 400));
+    }
+    if (card.isLinked) {
+      return next(new AppError('This card is already linked to another patient.', 409));
+    }
+    // Unlink old card if any
+    if (patient.cardId) {
+      await Card.findOneAndUpdate({ cardNumber: patient.cardId }, { isLinked: false, patientId: null });
     }
     patient.cardId = cardId;
+    newCardLinked = true;
   }
 
   // UPDATE NORMAL FIELDS
@@ -462,11 +592,17 @@ export const updatePatientProfile = async (req, res, next) => {
   if (surgerys) patient.surgerys = surgerys; // must be an array
   if (ChronicDiseases) patient.ChronicDiseases = ChronicDiseases; // must be an array
 
-  // SAVE 
+  // SAVE
   const updatedPatient = await patient.save();
   if (!updatedPatient) {
     return next(new AppError(messages.patient.failToUpdate, 500));
   }
+
+  // Link new card after save
+  if (newCardLinked) {
+    await Card.findOneAndUpdate({ cardNumber: cardId }, { isLinked: true, patientId: updatedPatient._id });
+  }
+
   // SEND RESPONSE
   return res.status(200).json({
     message: messages.patient.updated,
@@ -579,7 +715,7 @@ export const getPatientByNationalId = async (req, res, next) => {
   });
 };
 
-// Get patient by NFC card UID (cardId field)
+// Get patient by NFC card UID (cardId field) — legacy, kept for backward compat
 export const getPatientByCardId = async (req, res, next) => {
   const { cardId } = req.params;
 
@@ -593,4 +729,36 @@ export const getPatientByCardId = async (req, res, next) => {
     message: messages.patient.fetchedSuccessfully,
     data: patient,
   });
+};
+
+// Get patient by physical NFC chip UID (ACR122U scan)
+// 1st: Card.nfcUid → Card.patientId → Patient  (new flow: admin scanned the chip)
+// 2nd: Patient.cardId = uid directly            (fallback for existing patients)
+export const getPatientByNfcUid = async (req, res, next) => {
+  const { nfcUid } = req.params;
+
+  // Try the card registry first
+  const card = await Card.findOne({ nfcUid });
+  if (card && card.patientId) {
+    const patient = await Patient.findById(card.patientId);
+    if (patient) {
+      return res.status(200).json({
+        success: true,
+        message: messages.patient.fetchedSuccessfully,
+        data: patient,
+      });
+    }
+  }
+
+  // Fallback: patient's cardId field holds the UID directly
+  const patient = await Patient.findOne({ cardId: nfcUid });
+  if (patient) {
+    return res.status(200).json({
+      success: true,
+      message: messages.patient.fetchedSuccessfully,
+      data: patient,
+    });
+  }
+
+  return next(new AppError(messages.patient.notExist, 404));
 };

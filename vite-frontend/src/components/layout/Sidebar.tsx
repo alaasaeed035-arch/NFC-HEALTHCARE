@@ -3,7 +3,6 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   Heart,
   LayoutDashboard,
-  Users,
   FileText,
   Building2,
   ShieldCheck,
@@ -37,7 +36,6 @@ const NAV_ITEMS: Record<Role, NavItem[]> = {
   ],
   receptionist: [
     { label: 'Queue Manager', to: '/receptionist/dashboard', icon: ClipboardList },
-    { label: 'Patients', to: '/receptionist/dashboard#patients', icon: Users },
     { label: 'Doctors', to: '/receptionist/dashboard#doctors', icon: Stethoscope },
   ],
   admin_hospital: [
@@ -45,7 +43,6 @@ const NAV_ITEMS: Record<Role, NavItem[]> = {
     { label: 'Receptionists', to: '/admin-hospital/staff#receptionists', icon: UserCog },
     { label: 'Pharmacists', to: '/admin-hospital/staff#pharmacists', icon: FlaskConical },
     { label: 'Doctors', to: '/admin-hospital/staff#doctors', icon: Stethoscope },
-    { label: 'Patients', to: '/admin-hospital/staff#patients', icon: Users },
   ],
   admin: [
     { label: 'Overview', to: '/admin/facilities#overview', icon: LayoutDashboard },

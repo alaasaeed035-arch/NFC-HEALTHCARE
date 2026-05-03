@@ -60,6 +60,14 @@ export default function DoctorDashboard() {
     return { label: `In stock (${found.quantityInStock} ${found.unit ?? 'units'})`, className: 'bg-green-100 text-green-700' }
   }
 
+  const resolveInventoryItemId = (name: string): string | undefined => {
+    if (!name.trim() || inventory.length === 0) return undefined
+    const lower = name.trim().toLowerCase()
+    return inventory.find(i =>
+      i.name.toLowerCase() === lower || i.genericName?.toLowerCase() === lower
+    )?._id
+  }
+
   useEffect(() => {
     const id = location.hash.replace('#', '')
     if (id) {
@@ -213,19 +221,18 @@ export default function DoctorDashboard() {
     const validMeds = newMeds.filter(m => m.name.trim())
     setAddingRecord(true)
     try {
-      // When sending a prescription, keep medications out of the medical record
-      // to avoid saving them twice (the prescription endpoint records them separately)
       await client.post('/medical-record/add', {
         patientId: selectedPatient._id,
         diagnosis: newDiagnosis || 'Medication Update',
         treatment: newTreatment || undefined,
-        medications: sendToPharmacist ? [] : validMeds,
+        medications: validMeds,
       })
 
       if (sendToPharmacist && validMeds.length > 0) {
         await client.post('/api/pharmacy/prescriptions', {
           patientId: selectedPatient._id,
           medications: validMeds.map(m => ({
+            inventoryItemId: resolveInventoryItemId(m.name) || undefined,
             name: m.name.trim(),
             dosage: m.dosage.trim() || undefined,
             frequency: m.frequency.trim() || undefined,
@@ -363,7 +370,7 @@ export default function DoctorDashboard() {
       if (inlineSendToPharmacist && selectedPatient) {
         await client.post('/api/pharmacy/prescriptions', {
           patientId: selectedPatient._id,
-          medications: [newMed],
+          medications: [{ inventoryItemId: resolveInventoryItemId(newMed.name) || undefined, ...newMed }],
           notes: inlinePharmacistNotes.trim() || undefined,
         })
         toast({ title: 'Medication added & prescription sent to pharmacist', variant: 'success' })

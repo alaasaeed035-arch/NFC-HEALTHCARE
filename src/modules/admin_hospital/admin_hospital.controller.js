@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { User, Doctor, Patient } from "../../../db/index.js";
+import { User, Doctor, Patient, Hospital } from "../../../db/index.js";
 import { AppError } from "../../utils/appError.js";
 import { roles } from "../../utils/constant/enum.js";
 import { messages } from "../../utils/constant/messages.js";
@@ -196,13 +196,17 @@ export const deleteReceptionist = async (req, res, next) => {
   });
 };
 
-// Get patients belonging to the authenticated user's hospital
+// Get all patients in the system (platform-wide access, not hospital-scoped)
 export const getHospitalPatients = async (req, res, next) => {
-  const hospitalId = req.authUser.hospitalId;
-  if (!hospitalId) {
-    return next(new AppError(messages.hospital.notExist, 404));
+  const { search } = req.query;
+  const query = {};
+  if (search) {
+    const rx = { $regex: search.trim(), $options: 'i' };
+    query.$or = [
+      { firstName: rx }, { lastName: rx }, { nationalId: rx }, { cardId: rx },
+    ];
   }
-  const patients = await Patient.find({ hospitalId });
+  const patients = await Patient.find(query).sort({ createdAt: -1 });
   return res.status(200).json({
     message: messages.user.fetchedSuccessfully,
     success: true,
@@ -483,6 +487,45 @@ export const deletePharmacist = async (req, res, next) => {
 
   await pharmacist.deleteOne();
   return res.status(200).json({ message: messages.user.deleted, success: true });
+};
+
+// ── Department management ─────────────────────────────────────────────────
+
+// GET /admin-hospital/departments
+export const getDepartments = async (req, res, next) => {
+  const { hospitalId } = req.authUser;
+  if (!hospitalId) return next(new AppError(messages.hospital.notExist, 404));
+  const hospital = await Hospital.findById(hospitalId).select('departments');
+  if (!hospital) return next(new AppError(messages.hospital.notExist, 404));
+  return res.status(200).json({ success: true, data: hospital.departments ?? [] });
+};
+
+// POST /admin-hospital/departments — body: { name, floor }
+export const addDepartment = async (req, res, next) => {
+  const { hospitalId } = req.authUser;
+  const { name, floor } = req.body;
+  if (!name?.trim()) return next(new AppError('Department name is required', 400));
+  if (!hospitalId) return next(new AppError(messages.hospital.notExist, 404));
+  const hospital = await Hospital.findById(hospitalId);
+  if (!hospital) return next(new AppError(messages.hospital.notExist, 404));
+  const exists = hospital.departments?.some(d => (d.name ?? '').toLowerCase() === name.trim().toLowerCase());
+  if (exists) return next(new AppError('A department with that name already exists', 409));
+  hospital.departments.push({ name: name.trim(), floor: floor?.trim() ?? '' });
+  await hospital.save();
+  return res.status(201).json({ success: true, data: hospital.departments });
+};
+
+// DELETE /admin-hospital/departments/:name
+export const deleteDepartment = async (req, res, next) => {
+  const { hospitalId } = req.authUser;
+  const name = decodeURIComponent(req.params.name);
+  const hospital = await Hospital.findById(hospitalId);
+  if (!hospital) return next(new AppError(messages.hospital.notExist, 404));
+  const before = hospital.departments?.length ?? 0;
+  hospital.departments = (hospital.departments ?? []).filter(d => d.name !== name);
+  if (hospital.departments.length === before) return next(new AppError('Department not found', 404));
+  await hospital.save();
+  return res.status(200).json({ success: true, data: hospital.departments });
 };
 
 // Get Admin Hospital Profile

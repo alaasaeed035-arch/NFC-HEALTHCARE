@@ -70,7 +70,7 @@ export function NfcScanModal({ open, onOpenChange, onPatientFound }: NfcScanModa
           setSearching(true)
           setError('')
           try {
-            const patientRes = await client.get(`/auth/patient/by-card-id/${data.uid}`)
+            const patientRes = await client.get(`/auth/patient/by-nfc-uid/${data.uid}`)
             const patient: Patient = patientRes.data?.data ?? patientRes.data
             patientFoundRef.current = true
             setFoundPatient(patient)
@@ -251,12 +251,16 @@ export function NfcScanModal({ open, onOpenChange, onPatientFound }: NfcScanModa
                     <Droplets className="h-4 w-4 opacity-60" />
                     <div>
                       <p className="opacity-60 text-xs">Blood Type</p>
-                      <p className="font-bold text-base">{foundPatient.bloodType ?? 'Unknown'}</p>
+                      <p className="font-bold text-base">{foundPatient.bloodType ?? '—'}</p>
                     </div>
                   </div>
                   <div>
                     <p className="opacity-60 text-xs">Date of Birth</p>
-                    <p className="font-medium">{new Date(foundPatient.dateOfBirth).toLocaleDateString()}</p>
+                    <p className="font-medium">
+                      {foundPatient.dateOfBirth
+                        ? (() => { const d = new Date(foundPatient.dateOfBirth); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString() })()
+                        : '—'}
+                    </p>
                   </div>
                   {foundPatient.ChronicDiseases && foundPatient.ChronicDiseases.length > 0 && (
                     <div>

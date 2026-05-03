@@ -150,6 +150,7 @@ export interface PharmacyInventoryItem {
   unit?: string
   manufacturer?: string
   expiryDate?: string
+  pricePerUnit: number
   lowStockThreshold: number
   isActive: boolean
   createdBy?: string

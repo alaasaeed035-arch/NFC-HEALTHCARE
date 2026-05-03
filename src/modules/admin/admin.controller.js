@@ -1,8 +1,9 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { AppError } from "../../utils/appError.js";
 import { messages } from "../../utils/constant/messages.js";
 import { roles } from "../../utils/constant/enum.js";
-import { User } from "../../../db/index.js";
+import { User, Card } from "../../../db/index.js";
 import { generateToken } from "../../utils/token.js";
 
 // // Signup Super Admin
@@ -262,6 +263,82 @@ export const deleteHospitalAdmin = async (req, res, next) => {
   });
 };
 
+
+// Generate NFC Cards (ADMIN / SUPER_ADMIN)
+export const generateCards = async (req, res, next) => {
+  const count = Math.min(parseInt(req.body.count) || 1, 100);
+
+  const makeCardNumber = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const rand = crypto.randomBytes(8).toString("hex").toUpperCase();
+    let result = "NFC-";
+    for (let i = 0; i < 8; i++) {
+      result += chars[parseInt(rand[i], 16) % chars.length];
+    }
+    return result;
+  };
+
+  const cards = [];
+  let attempts = 0;
+  while (cards.length < count && attempts < count * 5) {
+    attempts++;
+    const cardNumber = makeCardNumber();
+    const exists = await Card.findOne({ cardNumber });
+    if (!exists) {
+      cards.push({ cardNumber });
+    }
+  }
+
+  const created = await Card.insertMany(cards);
+
+  return res.status(201).json({
+    success: true,
+    message: `${created.length} card(s) generated successfully.`,
+    count: created.length,
+    data: created,
+  });
+};
+
+// Assign physical NFC UID to a card (ADMIN / SUPER_ADMIN)
+export const scanCard = async (req, res, next) => {
+  const { id } = req.params;
+  const { nfcUid } = req.body;
+
+  if (!nfcUid) return next(new AppError('NFC UID is required', 400));
+
+  // Check uniqueness — same chip must not be assigned to two card numbers
+  const duplicate = await Card.findOne({ nfcUid });
+  if (duplicate && duplicate._id.toString() !== id) {
+    return next(new AppError('This NFC chip is already assigned to another card.', 409));
+  }
+
+  const card = await Card.findByIdAndUpdate(id, { nfcUid }, { new: true });
+  if (!card) return next(new AppError('Card not found', 404));
+
+  return res.status(200).json({
+    success: true,
+    message: 'NFC chip assigned successfully.',
+    data: card,
+  });
+};
+
+// Get All Cards (ADMIN / SUPER_ADMIN)
+export const getCards = async (req, res, next) => {
+  const { status } = req.query; // 'linked' | 'available'
+  const filter = {};
+  if (status === "linked") filter.isLinked = true;
+  if (status === "available") filter.isLinked = false;
+
+  const cards = await Card.find(filter)
+    .populate("patientId", "firstName lastName nationalId")
+    .sort({ createdAt: -1 });
+
+  return res.status(200).json({
+    success: true,
+    count: cards.length,
+    data: cards,
+  });
+};
 
 // Hospital Admin Login
 export const loginHospitalAdmin = async (req, res, next) => {

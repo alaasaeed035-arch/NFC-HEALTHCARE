@@ -5,7 +5,7 @@ import { isAuthenticated } from "../../middleware/authentication.js";
 import { isAuthorized } from "../../middleware/autheraization.js";
 import { roles } from "../../utils/constant/enum.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
-import { createAdmin, createAdminHospital, deleteAdminById, deleteHospitalAdmin, getAllAdmin, getAllHospitalAdmins } from "./admin.controller.js";
+import { createAdmin, createAdminHospital, deleteAdminById, deleteHospitalAdmin, getAllAdmin, getAllHospitalAdmins, generateCards, getCards, scanCard } from "./admin.controller.js";
 
 
 const adminRouter = Router();
@@ -67,5 +67,26 @@ adminRouter.delete("/hospital-admin/:adminId",
 );
 
 
+
+// generate NFC cards
+adminRouter.post("/cards/generate",
+    isAuthenticated(),
+    isAuthorized([roles.SUPER_ADMIN, roles.ADMIN]),
+    asyncHandler(generateCards)
+);
+
+// list all NFC cards
+adminRouter.get("/cards",
+    isAuthenticated(),
+    isAuthorized([roles.SUPER_ADMIN, roles.ADMIN]),
+    asyncHandler(getCards)
+);
+
+// assign physical NFC UID to a generated card
+adminRouter.put("/cards/:id/scan",
+    isAuthenticated(),
+    isAuthorized([roles.SUPER_ADMIN, roles.ADMIN]),
+    asyncHandler(scanCard)
+);
 
 export default adminRouter;

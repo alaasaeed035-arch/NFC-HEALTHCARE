@@ -45,7 +45,8 @@ export default function LoginPage() {
       if (!email.trim()) { setError('Please enter your email address'); return }
       if (!password) { setError('Please enter your password'); return }
     } else {
-      if (!nationalId.trim()) { setError('Please enter your National ID'); return }
+      if (!email.trim()) { setError('Please enter your email address'); return }
+      if (!password) { setError('Please enter your password'); return }
     }
 
     setLoading(true)
@@ -225,18 +226,41 @@ export default function LoginPage() {
                   </div>
                 </>
               ) : (
-                <div className="space-y-1.5">
-                  <Label htmlFor="national-id">National ID</Label>
-                  <Input
-                    id="national-id"
-                    type="text"
-                    placeholder="Enter your National ID"
-                    value={nationalId}
-                    onChange={e => setNationalId(e.target.value)}
-                    autoComplete="off"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">No password needed — your National ID is your key.</p>
-                </div>
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="patient-email">Email Address</Label>
+                    <Input
+                      id="patient-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={e => { setEmail(e.target.value); setFailedAttempts(0) }}
+                      autoComplete="email"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="patient-password">Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="patient-password"
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        autoComplete="current-password"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(s => !s)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
 
               {error && (

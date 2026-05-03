@@ -16,7 +16,12 @@
       "Bash(npx tsc *)",
       "Bash(node -e ' *)",
       "Bash(python3 *)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\IT STORE\\\\Desktop\\\\Nfc-healthcare-card-main\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\IT STORE\\\\Desktop\\\\Nfc-healthcare-card-main\" -Recurse -Filter \"*pharmacy*\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object FullName)",
+      "Bash(node *)"
     ]
   }
 }

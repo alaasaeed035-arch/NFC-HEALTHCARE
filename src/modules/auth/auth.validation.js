@@ -23,6 +23,10 @@ export const selfSignupPatientSchema = joi.object({
     firstName : generalFields.name.required(),
     lastName : generalFields.name.required(),
     nationalId : generalFields.nationalId.required(),
+    email : generalFields.email.required(),
+    password : joi.string().min(8).required().messages({
+        'string.min': 'Password must be at least 8 characters',
+    }),
     gender: generalFields.gender.required(),
     dateOfBirth: generalFields.dateOfBirth.required(),
     bloodType: generalFields.bloodType.optional(),
@@ -40,9 +44,21 @@ export const selfSignupPatientSchema = joi.object({
     ChronicDiseases : generalFields.ChronicDiseases.optional(),
 })
 
-// patient login validation
+// patient OTP verification
+export const verifyPatientOtpSchema = joi.object({
+    email : generalFields.email.required(),
+    otp : generalFields.otp.required(),
+})
+
+// patient resend OTP
+export const resendPatientOtpSchema = joi.object({
+    email : generalFields.email.required(),
+})
+
+// patient login validation (email + password)
 export const loginPatientSchema = joi.object({
-    nationalId : generalFields.nationalId.required(),
+    email : generalFields.email.required(),
+    password : joi.string().required(),
 })
 
 // doctor signup validation

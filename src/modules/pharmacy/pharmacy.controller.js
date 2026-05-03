@@ -44,7 +44,7 @@ export const getInventory = async (req, res, next) => {
 
 export const addInventoryItem = async (req, res, next) => {
     const hospitalId = req.authUser.hospitalId;
-    const { name, genericName, dosageForms, quantityInStock, unit, manufacturer, expiryDate, lowStockThreshold } = req.body;
+    const { name, genericName, dosageForms, quantityInStock, unit, manufacturer, expiryDate, lowStockThreshold, pricePerUnit } = req.body;
 
     // No duplicate drug name within the same hospital
     const duplicate = await PharmacyInventory.findOne({
@@ -65,6 +65,7 @@ export const addInventoryItem = async (req, res, next) => {
         unit,
         manufacturer,
         expiryDate,
+        pricePerUnit: pricePerUnit ?? 0,
         lowStockThreshold,
         createdBy: req.authUser._id,
     });
@@ -93,7 +94,7 @@ export const updateInventoryItem = async (req, res, next) => {
 
     const updatable = [
         "name", "genericName", "dosageForms", "quantityInStock",
-        "unit", "manufacturer", "expiryDate", "lowStockThreshold", "isActive",
+        "unit", "manufacturer", "expiryDate", "pricePerUnit", "lowStockThreshold", "isActive",
     ];
     updatable.forEach((field) => {
         if (req.body[field] !== undefined) item[field] = req.body[field];
@@ -145,6 +146,21 @@ export const createPrescription = async (req, res, next) => {
     const hospital = await Hospital.findById(hospitalId);
     if (!hospital) {
         return next(new AppError(messages.hospital.notExist, 404));
+    }
+
+    // Auto-link medications to inventory by name when inventoryItemId is missing
+    for (const med of medications) {
+        if (!med.inventoryItemId && med.name?.trim()) {
+            const match = await PharmacyInventory.findOne({
+                hospitalId,
+                isActive: true,
+                $or: [
+                    { name:        { $regex: `^${med.name.trim()}$`, $options: "i" } },
+                    { genericName: { $regex: `^${med.name.trim()}$`, $options: "i" } },
+                ],
+            }).select("_id");
+            if (match) med.inventoryItemId = match._id;
+        }
     }
 
     // Validate every referenced inventory item exists and belongs to this hospital
@@ -226,29 +242,6 @@ export const createPrescription = async (req, res, next) => {
         return next(new AppError(messages.prescription.failToCreate, 500));
     }
 
-    // ── Push medications into patient's latest medical record ─
-    try {
-        const latestRecord = await MedicalRecord.findOne({
-            $or: [
-                { patientId: patient._id },
-                { patientId: patient._id.toString() },
-            ],
-        }).sort({ createdAt: -1 });
-
-        if (latestRecord) {
-            const toAppend = medications.map((m) => ({
-                name: m.name,
-                dosage: m.dosage,
-                frequency: m.frequency,
-                duration: m.duration,
-            }));
-            latestRecord.medications.push(...toAppend);
-            await latestRecord.save();
-        }
-    } catch (err) {
-        console.error("Failed to sync prescription medications to medical record:", err.message);
-    }
-
     return res.status(201).json({
         success: true,
         message: messages.prescription.created,
@@ -290,6 +283,12 @@ export const dispensePrescription = async (req, res, next) => {
     const pharmacistId = req.authUser._id;
     const hospitalId = req.authUser.hospitalId;
 
+    // medicationQuantities: optional array of integers, one per prescription.medications entry.
+    // Defaults to 1 for any item not provided.
+    const medicationQuantities = Array.isArray(req.body.medicationQuantities)
+        ? req.body.medicationQuantities
+        : [];
+
     const prescription = await Prescription.findById(id);
     if (!prescription) {
         return next(new AppError(messages.prescription.notExist, 404));
@@ -307,15 +306,24 @@ export const dispensePrescription = async (req, res, next) => {
         return next(new AppError(messages.prescription.cancelled, 400));
     }
 
-    // ── Pre-check: ensure stock is sufficient for every item ─
-    const medsWithInventory = prescription.medications.filter((m) => m.inventoryItemId);
+    // ── Build per-medication quantity map (index → qty) ──────
+    const qtyForIndex = (i) => {
+        const q = Number(medicationQuantities[i]);
+        return Number.isFinite(q) && q >= 1 ? Math.floor(q) : 1;
+    };
 
-    for (const med of medsWithInventory) {
+    // ── Pre-check: ensure stock is sufficient for every item ─
+    const medsWithInventory = prescription.medications
+        .map((m, i) => ({ med: m, idx: i }))
+        .filter(({ med }) => med.inventoryItemId);
+
+    for (const { med, idx } of medsWithInventory) {
+        const qty = qtyForIndex(idx);
         const item = await PharmacyInventory.findById(med.inventoryItemId).select("name quantityInStock unit");
         if (!item) {
             return next(new AppError(`Drug not found in inventory: ${med.name || med.inventoryItemId}`, 404));
         }
-        if (item.quantityInStock < 1) {
+        if (item.quantityInStock < qty) {
             return next(
                 new AppError(
                     `${messages.prescription.insufficientStock} "${item.name}": only ${item.quantityInStock} ${item.unit || "units"} available`,
@@ -326,13 +334,14 @@ export const dispensePrescription = async (req, res, next) => {
     }
 
     // ── Deduct stock atomically per item ────────────────────
-    for (const med of medsWithInventory) {
+    for (const { med, idx } of medsWithInventory) {
+        const qty = qtyForIndex(idx);
         const result = await PharmacyInventory.findOneAndUpdate(
-            { _id: med.inventoryItemId, quantityInStock: { $gte: 1 } },
-            { $inc: { quantityInStock: -1 } },
+            { _id: med.inventoryItemId, quantityInStock: { $gte: qty } },
+            { $inc: { quantityInStock: -qty } },
             { new: true }
         );
-        // Concurrent race: another dispense emptied the stock between our check and update
+        // Concurrent race: another dispense reduced stock between our check and update
         if (!result) {
             return next(
                 new AppError(

@@ -394,6 +394,7 @@ async def fetch_patient_data(patient_id: str) -> dict:
         data["name"]       = f"{first} {last}".strip() or "Unknown"
         data["age"]        = _calc_age(patient.get("dateOfBirth"))
         data["blood_type"] = patient.get("bloodType", "Unknown")
+        data["address"]    = patient.get("address", "")
         data["diseases"]   = patient.get("ChronicDiseases", [])
         data["surgeries"]  = patient.get("surgerys", [])
 
@@ -474,7 +475,7 @@ def build_messages(patient_data: dict, history: List[dict], question: str, hospi
             "- متفضحش بيانات الطوارئ أو أي بيانات شخصية حساسة\n"
             "- عندك قائمة بكل المستشفيات في النظام مع عناوينها — استخدمها لو سألك عنها\n"
             "- لو سألك عن أقرب مستشفى واديتلك موقعه، قارن موقعه بعناوين المستشفيات وقوله الأقرب\n"
-            "- لو سألك عن أقرب مستشفى من غير ما يقولك موقعه، اسأله هو بيه دلوقتي\n"
+            "- لو سألك عن أقرب مستشفى من غير ما يقولك موقعه، استخدم عنوانه المسجل في بياناته لو موجود\n"
         )
     else:
         system = (
@@ -495,7 +496,7 @@ def build_messages(patient_data: dict, history: List[dict], question: str, hospi
             "- Never reveal emergency contacts or sensitive personal data\n"
             "- You have a list of all hospitals in the system with their addresses — use it when asked\n"
             "- If asked about the nearest hospital and given a location, compare it to hospital addresses and name the closest one\n"
-            "- If asked about the nearest hospital without a location, ask where the patient is now\n"
+            "- If asked about the nearest hospital without a location, use the patient's registered address if available\n"
         )
 
     none_val   = "لا يوجد" if arabic else "None"
@@ -536,12 +537,15 @@ def build_messages(patient_data: dict, history: List[dict], question: str, hospi
     hosp_lines = "\n".join(_fmt_hospital(h) for h in hospitals) \
         or ("  لا يوجد مستشفيات مسجلة" if arabic else "  No hospitals registered")
 
+    address = patient_data.get("address", "") or (none_val)
+
     if arabic:
         user_content = (
             f"بيانات المريض:\n"
             f"الاسم: {patient_data.get('name', unknown)}\n"
             f"العمر: {patient_data.get('age', unknown)}\n"
             f"فصيلة الدم: {patient_data.get('blood_type', unknown)}\n"
+            f"العنوان: {address}\n"
             f"الأمراض المزمنة: {diseases}\n"
             f"الأدوية الحالية: {medications}\n"
             f"العمليات: {surgeries}\n"
@@ -568,6 +572,7 @@ def build_messages(patient_data: dict, history: List[dict], question: str, hospi
             f"Name: {patient_data.get('name', unknown)}\n"
             f"Age: {patient_data.get('age', unknown)}\n"
             f"Blood Type: {patient_data.get('blood_type', unknown)}\n"
+            f"Address: {address}\n"
             f"Chronic Diseases: {diseases}\n"
             f"Current Medications: {medications}\n"
             f"Surgeries: {surgeries}\n"
@@ -711,7 +716,7 @@ def _speechmatics_transcribe(audio_bytes: bytes, filename: str) -> str:
     config = {
         "type": "transcription",
         "transcription_config": {
-            "language": "auto",
+            "language": "ar",
             "operating_point": "enhanced",
             "diarization": "none",
         },
